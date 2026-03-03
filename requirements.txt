@@ -17,8 +17,3 @@ pandas>=2.0.0
 streamlit-authenticator>=0.2.3
 bcrypt>=4.0.0
 PyYAML>=6.0
-
-cd C:\Users\PC\Desktop\contaflow
-git add .
-git commit -m "fix bcrypt"
-git push
