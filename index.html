@@ -1,0 +1,1619 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ContaFlow — Causación automática de facturas con IA</title>
+  <meta name="description" content="Sube tu factura PDF y ContaFlow la registra sola en tu software contable en segundos. Integrado con Siigo y Alegra." />
+  <style>
+    /* ── Reset & variables ─────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --blue:        #0066FF;
+      --blue-dark:   #0052CC;
+      --blue-deeper: #003D99;
+      --blue-light:  #E8F0FF;
+      --blue-mid:    #4D94FF;
+      --text:        #0F172A;
+      --text-soft:   #475569;
+      --text-xsoft:  #94A3B8;
+      --bg:          #FFFFFF;
+      --bg-soft:     #F8FAFF;
+      --bg-card:     #FFFFFF;
+      --border:      #E2E8F0;
+      --shadow-sm:   0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.05);
+      --shadow-md:   0 4px 16px rgba(0,102,255,.10), 0 2px 6px rgba(0,0,0,.06);
+      --shadow-lg:   0 20px 60px rgba(0,102,255,.14), 0 8px 24px rgba(0,0,0,.08);
+      --radius:      14px;
+      --radius-sm:   8px;
+      --radius-pill: 999px;
+      --font: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+      --transition: .22s cubic-bezier(.4,0,.2,1);
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font);
+      color: var(--text);
+      background: var(--bg);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Utilidades ────────────────────────────────────────────────────── */
+    .container { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+    .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); }
+
+    /* ── Botones ───────────────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: .9375rem;
+      font-weight: 600;
+      padding: 12px 24px;
+      border-radius: var(--radius-pill);
+      border: none;
+      cursor: pointer;
+      text-decoration: none;
+      transition: var(--transition);
+      white-space: nowrap;
+      letter-spacing: -.01em;
+    }
+    .btn-primary {
+      background: var(--blue);
+      color: #fff;
+      box-shadow: 0 4px 14px rgba(0,102,255,.35);
+    }
+    .btn-primary:hover {
+      background: var(--blue-dark);
+      box-shadow: 0 6px 20px rgba(0,102,255,.45);
+      transform: translateY(-1px);
+    }
+    .btn-primary:active { transform: translateY(0); }
+    .btn-outline {
+      background: transparent;
+      color: var(--blue);
+      border: 2px solid var(--blue);
+    }
+    .btn-outline:hover {
+      background: var(--blue-light);
+      transform: translateY(-1px);
+    }
+    .btn-ghost {
+      background: rgba(255,255,255,.15);
+      color: #fff;
+      border: 2px solid rgba(255,255,255,.3);
+      backdrop-filter: blur(8px);
+    }
+    .btn-ghost:hover {
+      background: rgba(255,255,255,.25);
+      border-color: rgba(255,255,255,.6);
+      transform: translateY(-1px);
+    }
+    .btn-lg { font-size: 1.0625rem; padding: 16px 36px; }
+
+    /* ═══════════════════════════════════════════════════════════════════
+       NAVBAR
+    ═══════════════════════════════════════════════════════════════════ */
+    .navbar {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      padding: 0 24px;
+      background: rgba(255,255,255,.92);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid rgba(226,232,240,.7);
+      transition: box-shadow var(--transition);
+    }
+    .navbar.scrolled { box-shadow: var(--shadow-md); }
+    .navbar-inner {
+      max-width: 1120px;
+      margin: 0 auto;
+      height: 68px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+    }
+    .logo-icon {
+      width: 36px; height: 36px;
+      background: var(--blue);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .logo-icon svg { width: 20px; height: 20px; fill: #fff; }
+    .logo-text {
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: var(--text);
+      letter-spacing: -.03em;
+    }
+    .logo-text span { color: var(--blue); }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+    }
+    .nav-links a {
+      color: var(--text-soft);
+      text-decoration: none;
+      font-size: .875rem;
+      font-weight: 500;
+      padding: 8px 14px;
+      border-radius: var(--radius-pill);
+      transition: color var(--transition), background var(--transition);
+      white-space: nowrap;
+    }
+    .nav-links a:hover { color: var(--blue); background: var(--blue-light); }
+    .nav-actions { display: flex; align-items: center; gap: 12px; }
+
+    /* ── Quiénes somos ───────────────────────────────────────────────── */
+    .quienes-section { background: var(--bg-soft); }
+    .quienes-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 28px;
+      margin-top: 56px;
+    }
+    .quienes-card {
+      background: var(--bg-card);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius);
+      padding: 36px 28px;
+      box-shadow: var(--shadow-sm);
+      transition: transform var(--transition), box-shadow var(--transition);
+    }
+    .quienes-card:hover {
+      transform: translateY(-6px);
+      box-shadow: var(--shadow-md);
+    }
+    .quienes-icon {
+      width: 52px; height: 52px;
+      background: var(--blue-light);
+      border-radius: 14px;
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 20px;
+    }
+    .quienes-icon svg { width: 26px; height: 26px; fill: var(--blue); }
+    .quienes-title {
+      font-size: 1.0625rem;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 10px;
+    }
+    .quienes-desc {
+      font-size: .9375rem;
+      color: var(--text-soft);
+      line-height: 1.65;
+    }
+    @media (max-width: 768px) {
+      .nav-links { display: none; }
+      .quienes-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 900px) {
+      .quienes-grid { grid-template-columns: 1fr 1fr; }
+    }
+
+    /* ═══════════════════════════════════════════════════════════════════
+       HERO
+    ═══════════════════════════════════════════════════════════════════ */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      position: relative;
+      overflow: hidden;
+      padding: 120px 24px 80px;
+      background: linear-gradient(145deg, #0A1628 0%, #0A2240 40%, #0038A8 100%);
+    }
+    .hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 70% 60% at 80% 50%, rgba(0,102,255,.25) 0%, transparent 60%),
+        radial-gradient(ellipse 50% 40% at 10% 80%, rgba(77,148,255,.15) 0%, transparent 55%);
+      pointer-events: none;
+    }
+    /* Animated grid */
+    .hero-grid {
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(0,102,255,.07) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,102,255,.07) 1px, transparent 1px);
+      background-size: 60px 60px;
+      mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, black 0%, transparent 80%);
+      pointer-events: none;
+    }
+    .hero-content {
+      position: relative;
+      z-index: 2;
+      max-width: 1120px;
+      margin: 0 auto;
+      width: 100%;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 64px;
+      align-items: center;
+    }
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(0,102,255,.2);
+      border: 1px solid rgba(0,102,255,.4);
+      color: #93BFFF;
+      font-size: .8125rem;
+      font-weight: 600;
+      padding: 6px 14px;
+      border-radius: var(--radius-pill);
+      margin-bottom: 24px;
+      backdrop-filter: blur(8px);
+      letter-spacing: .02em;
+    }
+    .hero-badge-dot {
+      width: 6px; height: 6px;
+      background: #4D94FF;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: .6; transform: scale(.8); }
+    }
+    .hero h1 {
+      font-size: clamp(2.25rem, 4.5vw, 3.75rem);
+      font-weight: 800;
+      color: #fff;
+      line-height: 1.1;
+      letter-spacing: -.04em;
+      margin-bottom: 20px;
+    }
+    .hero h1 .highlight {
+      background: linear-gradient(135deg, #4D94FF 0%, #80BAFF 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero-sub {
+      font-size: 1.125rem;
+      color: rgba(255,255,255,.7);
+      line-height: 1.65;
+      margin-bottom: 36px;
+      max-width: 480px;
+    }
+    .hero-actions {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+      margin-bottom: 48px;
+    }
+    .hero-trust {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .hero-trust-text {
+      font-size: .8125rem;
+      color: rgba(255,255,255,.45);
+    }
+    .integration-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.14);
+      border-radius: var(--radius-pill);
+      padding: 5px 12px;
+      font-size: .8125rem;
+      font-weight: 500;
+      color: rgba(255,255,255,.8);
+    }
+    .integration-badge svg { width: 14px; height: 14px; }
+
+    /* ── Hero mockup ───────────────────────────────────────────────────── */
+    .hero-visual {
+      position: relative;
+      display: flex;
+      justify-content: center;
+    }
+    .mockup-card {
+      background: rgba(255,255,255,.06);
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 20px;
+      padding: 24px;
+      width: 100%;
+      max-width: 440px;
+      backdrop-filter: blur(20px);
+      box-shadow: 0 40px 80px rgba(0,0,0,.4), 0 0 0 1px rgba(255,255,255,.05);
+    }
+    .mockup-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+    .mockup-title {
+      font-size: .75rem;
+      font-weight: 700;
+      color: rgba(255,255,255,.5);
+      text-transform: uppercase;
+      letter-spacing: .1em;
+    }
+    .mockup-status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: .75rem;
+      color: #4ADE80;
+      font-weight: 600;
+    }
+    .mockup-status-dot {
+      width: 6px; height: 6px;
+      background: #4ADE80;
+      border-radius: 50%;
+      box-shadow: 0 0 8px #4ADE80;
+      animation: pulse 2s infinite;
+    }
+    .mockup-invoice {
+      background: rgba(255,255,255,.04);
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+    .mockup-invoice-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .mockup-file-icon {
+      width: 36px; height: 36px;
+      background: rgba(0,102,255,.3);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .mockup-file-icon svg { width: 18px; height: 18px; fill: #80BAFF; }
+    .mockup-fname { font-size: .875rem; color: #fff; font-weight: 600; }
+    .mockup-fmeta { font-size: .75rem; color: rgba(255,255,255,.4); }
+    .mockup-fields { display: flex; flex-direction: column; gap: 6px; }
+    .mockup-field {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .mockup-flabel { font-size: .75rem; color: rgba(255,255,255,.45); }
+    .mockup-fvalue { font-size: .8125rem; color: rgba(255,255,255,.85); font-weight: 500; }
+    .mockup-fvalue.blue { color: #80BAFF; }
+    .mockup-bar {
+      height: 6px;
+      background: rgba(255,255,255,.06);
+      border-radius: 3px;
+      overflow: hidden;
+      margin-bottom: 6px;
+    }
+    .mockup-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--blue) 0%, var(--blue-mid) 100%);
+      border-radius: 3px;
+      animation: fillBar 2.5s ease-in-out infinite;
+    }
+    @keyframes fillBar {
+      0% { width: 0%; }
+      70% { width: 92%; }
+      100% { width: 92%; }
+    }
+    .mockup-progress-label {
+      font-size: .75rem;
+      color: rgba(255,255,255,.4);
+      margin-bottom: 14px;
+    }
+    .mockup-cta {
+      width: 100%;
+      background: var(--blue);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      padding: 12px;
+      font-size: .875rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      box-shadow: 0 4px 16px rgba(0,102,255,.4);
+    }
+    .mockup-float {
+      position: absolute;
+      right: -20px;
+      top: 40px;
+      background: #fff;
+      border-radius: 12px;
+      padding: 12px 16px;
+      box-shadow: var(--shadow-lg);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      animation: floatUp 3s ease-in-out infinite;
+    }
+    @keyframes floatUp {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-6px); }
+    }
+    .mockup-float-icon {
+      width: 32px; height: 32px;
+      background: #ECFDF5;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .mockup-float-icon svg { width: 16px; height: 16px; fill: #10B981; }
+    .mockup-float-text { font-size: .8125rem; font-weight: 700; color: var(--text); }
+    .mockup-float-sub { font-size: .7rem; color: var(--text-soft); }
+    .mockup-float2 {
+      position: absolute;
+      left: -24px;
+      bottom: 60px;
+      background: #fff;
+      border-radius: 12px;
+      padding: 10px 14px;
+      box-shadow: var(--shadow-lg);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      animation: floatUp 3s ease-in-out infinite .8s;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════════
+       STATS BAR
+    ═══════════════════════════════════════════════════════════════════ */
+    .stats-bar {
+      background: var(--bg-soft);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      padding: 32px 24px;
+    }
+    .stats-inner {
+      max-width: 1120px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 32px;
+      text-align: center;
+    }
+    .stat-num {
+      font-size: 2rem;
+      font-weight: 800;
+      color: var(--blue);
+      letter-spacing: -.04em;
+      display: block;
+    }
+    .stat-label {
+      font-size: .875rem;
+      color: var(--text-soft);
+      margin-top: 2px;
+    }
+    .stat-divider {
+      width: 1px;
+      background: var(--border);
+      display: none;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════════
+       SECTIONS COMMON
+    ═══════════════════════════════════════════════════════════════════ */
+    section { padding: 96px 24px; }
+    .section-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: .8125rem;
+      font-weight: 700;
+      color: var(--blue);
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      margin-bottom: 14px;
+    }
+    .section-tag::before {
+      content: '';
+      display: block;
+      width: 16px; height: 2px;
+      background: var(--blue);
+      border-radius: 2px;
+    }
+    .section-title {
+      font-size: clamp(1.75rem, 3vw, 2.625rem);
+      font-weight: 800;
+      color: var(--text);
+      letter-spacing: -.04em;
+      line-height: 1.15;
+      margin-bottom: 14px;
+    }
+    .section-sub {
+      font-size: 1.0625rem;
+      color: var(--text-soft);
+      max-width: 520px;
+      line-height: 1.65;
+    }
+    .section-head { margin-bottom: 60px; }
+    .section-head.center { text-align: center; }
+    .section-head.center .section-tag { justify-content: center; }
+    .section-head.center .section-sub { margin: 0 auto; }
+
+    /* ═══════════════════════════════════════════════════════════════════
+       CÓMO FUNCIONA
+    ═══════════════════════════════════════════════════════════════════ */
+    .how-section { background: var(--bg); }
+    .steps-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 28px;
+      position: relative;
+    }
+    .steps-grid::before {
+      content: '';
+      position: absolute;
+      top: 52px;
+      left: calc(16.66% + 16px);
+      right: calc(16.66% + 16px);
+      height: 2px;
+      background: linear-gradient(90deg, var(--blue-light) 0%, var(--blue) 50%, var(--blue-light) 100%);
+      z-index: 0;
+    }
+    .step-card {
+      background: var(--bg-card);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius);
+      padding: 32px 28px;
+      position: relative;
+      z-index: 1;
+      transition: var(--transition);
+      cursor: default;
+    }
+    .step-card:hover {
+      border-color: var(--blue);
+      box-shadow: var(--shadow-md);
+      transform: translateY(-4px);
+    }
+    .step-num {
+      width: 52px; height: 52px;
+      border-radius: 50%;
+      background: var(--blue-light);
+      border: 3px solid var(--bg);
+      box-shadow: 0 0 0 2px var(--blue);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.125rem;
+      font-weight: 800;
+      color: var(--blue);
+      margin-bottom: 24px;
+    }
+    .step-icon-wrap {
+      width: 52px; height: 52px;
+      border-radius: 14px;
+      background: var(--blue-light);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 20px;
+    }
+    .step-icon-wrap svg { width: 24px; height: 24px; fill: var(--blue); }
+    .step-step-label {
+      font-size: .75rem;
+      font-weight: 700;
+      color: var(--blue);
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      margin-bottom: 8px;
+    }
+    .step-title {
+      font-size: 1.125rem;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 10px;
+      letter-spacing: -.02em;
+    }
+    .step-desc { font-size: .9375rem; color: var(--text-soft); line-height: 1.6; }
+
+    /* ═══════════════════════════════════════════════════════════════════
+       FEATURES STRIP
+    ═══════════════════════════════════════════════════════════════════ */
+    .features-section {
+      background: var(--bg-soft);
+      padding: 80px 24px;
+    }
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 20px;
+      max-width: 1120px;
+      margin: 0 auto;
+    }
+    .feat-card {
+      display: flex;
+      gap: 18px;
+      align-items: flex-start;
+      background: var(--bg-card);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      transition: var(--transition);
+    }
+    .feat-card:hover {
+      border-color: var(--blue);
+      box-shadow: var(--shadow-sm);
+      transform: translateY(-2px);
+    }
+    .feat-icon {
+      width: 44px; height: 44px;
+      border-radius: 12px;
+      background: var(--blue-light);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .feat-icon svg { width: 22px; height: 22px; fill: var(--blue); }
+    .feat-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 4px;
+      letter-spacing: -.02em;
+    }
+    .feat-desc { font-size: .875rem; color: var(--text-soft); line-height: 1.55; }
+
+    /* ═══════════════════════════════════════════════════════════════════
+       PRICING
+    ═══════════════════════════════════════════════════════════════════ */
+    .pricing-section { background: var(--bg); }
+    .pricing-layout {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 40px;
+      align-items: center;
+    }
+    .pricing-copy .section-sub { max-width: 420px; }
+    .pricing-perks { margin-top: 28px; display: flex; flex-direction: column; gap: 12px; }
+    .perk {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: .9375rem;
+      color: var(--text-soft);
+    }
+    .perk-check {
+      width: 20px; height: 20px;
+      border-radius: 50%;
+      background: #ECFDF5;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .perk-check svg { width: 11px; height: 11px; fill: #10B981; }
+    .pricing-card {
+      background: linear-gradient(145deg, #0A1628 0%, #0038A8 100%);
+      border-radius: 24px;
+      padding: 40px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: var(--shadow-lg);
+    }
+    .pricing-card::before {
+      content: '';
+      position: absolute;
+      top: -60px; right: -60px;
+      width: 200px; height: 200px;
+      background: radial-gradient(circle, rgba(77,148,255,.25) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .pricing-card-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(0,102,255,.3);
+      border: 1px solid rgba(0,102,255,.5);
+      color: #93BFFF;
+      font-size: .8125rem;
+      font-weight: 700;
+      padding: 5px 12px;
+      border-radius: var(--radius-pill);
+      margin-bottom: 24px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+    .pricing-name {
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: rgba(255,255,255,.7);
+      margin-bottom: 4px;
+    }
+    .pricing-amount {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+    .pricing-currency { font-size: 1.5rem; font-weight: 700; color: #fff; }
+    .pricing-num {
+      font-size: 4rem;
+      font-weight: 800;
+      color: #fff;
+      letter-spacing: -.06em;
+      line-height: 1;
+    }
+    .pricing-unit { font-size: 1rem; color: rgba(255,255,255,.5); font-weight: 500; }
+    .pricing-desc {
+      font-size: .9rem;
+      color: rgba(255,255,255,.5);
+      margin-bottom: 28px;
+    }
+    .pricing-divider {
+      height: 1px;
+      background: rgba(255,255,255,.1);
+      margin-bottom: 24px;
+    }
+    .pricing-features { display: flex; flex-direction: column; gap: 10px; margin-bottom: 32px; }
+    .pricing-feature {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: .9375rem;
+      color: rgba(255,255,255,.8);
+    }
+    .pricing-feature svg { width: 16px; height: 16px; fill: #4ADE80; flex-shrink: 0; }
+    .pricing-cta {
+      width: 100%;
+      background: var(--blue);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius-pill);
+      padding: 16px;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 6px 20px rgba(0,102,255,.5);
+      transition: var(--transition);
+      letter-spacing: -.01em;
+    }
+    .pricing-cta:hover {
+      background: #1A78FF;
+      box-shadow: 0 8px 28px rgba(0,102,255,.6);
+      transform: translateY(-1px);
+    }
+    .pricing-note {
+      text-align: center;
+      font-size: .8rem;
+      color: rgba(255,255,255,.35);
+      margin-top: 14px;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════════
+       CONTACT
+    ═══════════════════════════════════════════════════════════════════ */
+    .contact-section { background: var(--bg-soft); }
+    .contact-layout {
+      display: grid;
+      grid-template-columns: 1fr 1.2fr;
+      gap: 64px;
+      align-items: start;
+    }
+    .contact-copy { padding-top: 8px; }
+    .contact-copy .section-sub { margin-bottom: 28px; }
+    .contact-detail {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: .9375rem;
+      color: var(--text-soft);
+      margin-bottom: 10px;
+    }
+    .contact-detail svg { width: 18px; height: 18px; fill: var(--blue); flex-shrink: 0; }
+    .contact-form {
+      background: var(--bg-card);
+      border: 1.5px solid var(--border);
+      border-radius: 20px;
+      padding: 36px;
+      box-shadow: var(--shadow-sm);
+    }
+    .form-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 24px;
+      letter-spacing: -.03em;
+    }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .form-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+    .form-group label {
+      font-size: .8125rem;
+      font-weight: 600;
+      color: var(--text-soft);
+      letter-spacing: .01em;
+    }
+    .form-group input,
+    .form-group select {
+      padding: 12px 16px;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-size: .9375rem;
+      color: var(--text);
+      background: var(--bg);
+      transition: var(--transition);
+      outline: none;
+      font-family: var(--font);
+      appearance: none;
+    }
+    .form-group input:focus,
+    .form-group select:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(0,102,255,.12);
+    }
+    .form-group input::placeholder { color: var(--text-xsoft); }
+    .form-group select { cursor: pointer; }
+    .form-submit {
+      width: 100%;
+      background: var(--blue);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius-pill);
+      padding: 14px;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: var(--transition);
+      letter-spacing: -.01em;
+      margin-top: 4px;
+      box-shadow: 0 4px 14px rgba(0,102,255,.35);
+    }
+    .form-submit:hover {
+      background: var(--blue-dark);
+      box-shadow: 0 6px 20px rgba(0,102,255,.45);
+      transform: translateY(-1px);
+    }
+    .form-privacy {
+      text-align: center;
+      font-size: .8rem;
+      color: var(--text-xsoft);
+      margin-top: 12px;
+    }
+
+    /* ── Beta banner ─────────────────────────────────────────────────── */
+    .beta-banner {
+      background: linear-gradient(90deg, var(--blue-deeper) 0%, var(--blue) 60%, var(--blue-mid) 100%);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      padding: 11px 48px 11px 24px;
+      font-size: .875rem;
+      font-weight: 500;
+      position: relative;
+      z-index: 102;
+    }
+    .beta-banner-btn {
+      background: rgba(255,255,255,.18);
+      border: 1px solid rgba(255,255,255,.4);
+      color: #fff;
+      padding: 5px 16px;
+      border-radius: var(--radius-pill);
+      text-decoration: none;
+      font-size: .8125rem;
+      font-weight: 700;
+      white-space: nowrap;
+      transition: background var(--transition);
+    }
+    .beta-banner-btn:hover { background: rgba(255,255,255,.32); }
+    .beta-banner-close {
+      position: absolute;
+      right: 14px;
+      top: 50%; transform: translateY(-50%);
+      background: none;
+      border: none;
+      color: rgba(255,255,255,.65);
+      cursor: pointer;
+      font-size: 1.1rem;
+      line-height: 1;
+      padding: 4px 6px;
+      transition: color var(--transition);
+    }
+    .beta-banner-close:hover { color: #fff; }
+
+    /* ═══════════════════════════════════════════════════════════════════
+       FOOTER
+    ═══════════════════════════════════════════════════════════════════ */
+    .footer {
+      background: var(--text);
+      color: rgba(255,255,255,.5);
+      padding: 40px 24px;
+    }
+    .footer-inner {
+      max-width: 1120px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    .footer-logo .logo-text { color: #fff; }
+    .footer-copy { font-size: .875rem; }
+    .footer-links { display: flex; gap: 24px; }
+    .footer-links a {
+      font-size: .875rem;
+      color: rgba(255,255,255,.4);
+      text-decoration: none;
+      transition: color var(--transition);
+    }
+    .footer-links a:hover { color: rgba(255,255,255,.8); }
+    .footer-co {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: .75rem;
+      color: rgba(255,255,255,.3);
+      margin-top: 4px;
+    }
+    .flag { font-size: 1rem; }
+
+    /* ── Animate on scroll ─────────────────────────────────────────────── */
+    .reveal {
+      opacity: 0;
+      transform: translateY(28px);
+      transition: opacity .55s ease, transform .55s ease;
+    }
+    .reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .reveal-delay-1 { transition-delay: .1s; }
+    .reveal-delay-2 { transition-delay: .2s; }
+    .reveal-delay-3 { transition-delay: .3s; }
+
+    /* ── Responsive ────────────────────────────────────────────────────── */
+    @media (max-width: 900px) {
+      .hero-content { grid-template-columns: 1fr; text-align: center; gap: 40px; }
+      .hero-visual { display: none; }
+      .hero-actions { justify-content: center; }
+      .hero-trust { justify-content: center; }
+      .steps-grid { grid-template-columns: 1fr; }
+      .steps-grid::before { display: none; }
+      .features-grid { grid-template-columns: 1fr; }
+      .pricing-layout { grid-template-columns: 1fr; }
+      [style*="grid-template-columns: repeat(3, 1fr)"] { grid-template-columns: 1fr !important; }
+      .contact-layout { grid-template-columns: 1fr; gap: 36px; }
+      .stats-inner { grid-template-columns: repeat(2, 1fr); }
+      .form-row { grid-template-columns: 1fr; }
+      .footer-inner { flex-direction: column; text-align: center; }
+      .footer-links { flex-wrap: wrap; justify-content: center; }
+    }
+    @media (max-width: 600px) {
+      .nav-actions .btn-outline { display: none; }
+      section { padding: 60px 20px; }
+      .contact-form { padding: 24px 20px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ════════════════════════════════════════════
+       BETA BANNER
+  ════════════════════════════════════════════ -->
+  <div class="beta-banner" id="betaBanner">
+    <span>🚀 Beta gratuita disponible — Prueba ContaFlow ahora</span>
+    <a href="login.html" class="beta-banner-btn">Probar gratis →</a>
+    <button class="beta-banner-close" onclick="document.getElementById('betaBanner').style.display='none'" aria-label="Cerrar">✕</button>
+  </div>
+
+  <!-- ════════════════════════════════════════════
+       NAVBAR
+  ════════════════════════════════════════════ -->
+  <header class="navbar" id="navbar">
+    <div class="navbar-inner">
+      <a href="#" class="logo" aria-label="ContaFlow inicio">
+        <img src="./logo.png" alt="ContaFlow" height="40" style="display:block;">
+      </a>
+      <nav class="nav-links" aria-label="Navegación principal">
+        <a href="#quienes-somos">Quiénes somos</a>
+        <a href="#como-funciona">Cómo funciona</a>
+        <a href="#precios">Precios</a>
+        <a href="#contacto">Contacto</a>
+      </nav>
+      <div class="nav-actions">
+        <a href="login.html" class="btn btn-primary" style="font-size:.875rem;padding:10px 22px;">Solicitar Demo</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- ════════════════════════════════════════════
+         HERO
+    ════════════════════════════════════════════ -->
+    <section class="hero" id="inicio">
+      <div class="hero-grid" aria-hidden="true"></div>
+      <div class="hero-content">
+        <div class="hero-text">
+          <img src="./logo.png" alt="ContaFlow" height="52"
+               style="display:block;margin-bottom:28px;filter:brightness(0) invert(1);">
+          <div class="hero-badge">
+            <span class="hero-badge-dot" aria-hidden="true"></span>
+            Integrado con Siigo y Alegra
+          </div>
+          <h1>Causación automática<br>de facturas con <span class="highlight">IA</span></h1>
+          <p class="hero-sub">
+            Sube tu factura PDF y ContaFlow la registra sola en tu software
+            contable en segundos. Sin digitación manual, sin errores.
+          </p>
+          <div class="hero-actions">
+            <a href="login.html" class="btn btn-primary btn-lg">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="white" aria-hidden="true"><path d="M13 3L4 14h8l-1 7 9-11h-8l1-7z"/></svg>
+              Empieza gratis
+            </a>
+            <a href="#como-funciona" class="btn btn-ghost">Ver cómo funciona</a>
+          </div>
+          <div class="hero-trust">
+            <span class="hero-trust-text">Compatible con</span>
+            <span class="integration-badge">
+              <svg viewBox="0 0 20 20" fill="rgba(255,255,255,.7)" aria-hidden="true"><path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"/></svg>
+              Siigo Nube
+            </span>
+            <span class="integration-badge">
+              <svg viewBox="0 0 20 20" fill="rgba(255,255,255,.7)" aria-hidden="true"><path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"/></svg>
+              Alegra
+            </span>
+          </div>
+        </div>
+
+        <!-- Visual mockup -->
+        <div class="hero-visual" aria-hidden="true">
+          <div class="mockup-card">
+            <div class="mockup-header">
+              <span class="mockup-title">ContaFlow IA</span>
+              <span class="mockup-status">
+                <span class="mockup-status-dot"></span>
+                Procesando
+              </span>
+            </div>
+            <div class="mockup-invoice">
+              <div class="mockup-invoice-header">
+                <div class="mockup-file-icon">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zm-1 1.5L18.5 9H13V3.5zM8 13h8v1.5H8V13zm0 3h6v1.5H8V16zm0-6h2v1.5H8V10z"/></svg>
+                </div>
+                <div>
+                  <div class="mockup-fname">FE-0042187.pdf</div>
+                  <div class="mockup-fmeta">247 KB · Factura electrónica</div>
+                </div>
+              </div>
+              <div class="mockup-fields">
+                <div class="mockup-field">
+                  <span class="mockup-flabel">Proveedor</span>
+                  <span class="mockup-fvalue">YAMAHA S.A.</span>
+                </div>
+                <div class="mockup-field">
+                  <span class="mockup-flabel">NIT</span>
+                  <span class="mockup-fvalue">890.916.911-6</span>
+                </div>
+                <div class="mockup-field">
+                  <span class="mockup-flabel">Total</span>
+                  <span class="mockup-fvalue blue">$7.224.999</span>
+                </div>
+                <div class="mockup-field">
+                  <span class="mockup-flabel">IVA</span>
+                  <span class="mockup-fvalue">$1.153.571</span>
+                </div>
+              </div>
+            </div>
+            <div class="mockup-bar"><div class="mockup-bar-fill"></div></div>
+            <div class="mockup-progress-label">Registrando en Siigo Nube… 92%</div>
+            <button class="mockup-cta" disabled>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="white" aria-hidden="true"><path d="M12 2a10 10 0 100 20A10 10 0 0012 2zm-1 14.414l-4.707-4.707 1.414-1.414L11 13.586l5.293-5.293 1.414 1.414L11 16.414z"/></svg>
+              Factura causada automáticamente
+            </button>
+          </div>
+          <!-- Floating badge -->
+          <div class="mockup-float">
+            <div class="mockup-float-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 100 20A10 10 0 0012 2zm-1 14.414l-4.707-4.707 1.414-1.414L11 13.586l5.293-5.293 1.414 1.414L11 16.414z"/></svg>
+            </div>
+            <div>
+              <div class="mockup-float-text">¡Causada en Siigo!</div>
+              <div class="mockup-float-sub">Hace 3 segundos</div>
+            </div>
+          </div>
+          <div class="mockup-float2">
+            <div style="font-size:1.25rem">🇨🇴</div>
+            <div>
+              <div class="mockup-float-text" style="font-size:.8125rem">Factura colombiana</div>
+              <div class="mockup-float-sub">E-invoicing compatible</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════
+         STATS
+    ════════════════════════════════════════════ -->
+    <div class="stats-bar">
+      <div class="stats-inner">
+        <div class="reveal">
+          <span class="stat-num">+3.000</span>
+          <span class="stat-label">Facturas procesadas</span>
+        </div>
+        <div class="reveal reveal-delay-1">
+          <span class="stat-num">98%</span>
+          <span class="stat-label">Precisión de extracción</span>
+        </div>
+        <div class="reveal reveal-delay-2">
+          <span class="stat-num">&lt;10 seg</span>
+          <span class="stat-label">Por factura causada</span>
+        </div>
+        <div class="reveal reveal-delay-3">
+          <span class="stat-num">100%</span>
+          <span class="stat-label">E-invoicing Colombia</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════
+         QUIÉNES SOMOS
+    ════════════════════════════════════════════ -->
+    <section class="quienes-section" id="quienes-somos">
+      <div class="container">
+        <div class="section-head center reveal">
+          <span class="section-tag">Quiénes somos</span>
+          <h2 class="section-title">Tecnología colombiana<br>para contadores modernos</h2>
+          <p class="section-sub">
+            ContaFlow nació en Bogotá con una misión clara: eliminar la digitación
+            manual de facturas en las firmas contables colombianas usando inteligencia
+            artificial de última generación.
+          </p>
+        </div>
+        <div class="quienes-grid">
+          <div class="quienes-card reveal">
+            <div class="quienes-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.414l-4.707-4.707 1.414-1.414L11 13.586l5.293-5.293 1.414 1.414L11 16.414z"/></svg>
+            </div>
+            <div class="quienes-title">Nuestra misión</div>
+            <div class="quienes-desc">
+              Devolver el tiempo a los contadores colombianos. Cada hora que ahorras
+              en digitación es una hora que puedes dedicar a asesorar, crecer y
+              generar más valor para tus clientes.
+            </div>
+          </div>
+          <div class="quienes-card reveal reveal-delay-1">
+            <div class="quienes-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+            </div>
+            <div class="quienes-title">Equipo colombiano</div>
+            <div class="quienes-desc">
+              Somos un equipo joven de Bogotá, apasionado por la tecnología y la
+              contabilidad. Conocemos de primera mano los retos que enfrentan las
+              firmas contables en Colombia.
+            </div>
+          </div>
+          <div class="quienes-card reveal reveal-delay-2">
+            <div class="quienes-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3L4 14h8l-1 7 9-11h-8l1-7z"/></svg>
+            </div>
+            <div class="quienes-title">IA de clase mundial</div>
+            <div class="quienes-desc">
+              Usamos Claude AI de Anthropic, uno de los modelos de lenguaje más
+              precisos del mundo, entrenado para leer facturas electrónicas
+              colombianas con 98% de exactitud.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════
+         CÓMO FUNCIONA
+    ════════════════════════════════════════════ -->
+    <section class="how-section" id="como-funciona">
+      <div class="container">
+        <div class="section-head center reveal">
+          <span class="section-tag">Proceso</span>
+          <h2 class="section-title">Tres pasos, cero esfuerzo</h2>
+          <p class="section-sub">
+            ContaFlow hace el trabajo pesado por ti. Sin configuraciones
+            complejas, sin curvas de aprendizaje.
+          </p>
+        </div>
+        <div class="steps-grid">
+          <div class="step-card reveal">
+            <div class="step-num">
+              <svg viewBox="0 0 24 24" fill="white" width="22" height="22" aria-hidden="true"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zm-1 1.5L18.5 9H13V3.5zM8 13h8v1.5H8V13zm0 3h6v1.5H8V16zm0-6h2v1.5H8V10z"/></svg>
+            </div>
+            <span class="step-step-label">Paso 1</span>
+            <h3 class="step-title">Sube tu factura</h3>
+            <p class="step-desc">
+              Arrastra el PDF o la imagen de tu factura electrónica colombiana.
+              Soporta PDF, JPG, PNG y WEBP. Hasta 50 facturas a la vez.
+            </p>
+          </div>
+          <div class="step-card reveal reveal-delay-1">
+            <div class="step-num">
+              <svg viewBox="0 0 24 24" fill="white" width="22" height="22" aria-hidden="true"><path d="M13 3L4 14h8l-1 7 9-11h-8l1-7z"/></svg>
+            </div>
+            <span class="step-step-label">Paso 2</span>
+            <h3 class="step-title">IA extrae los datos</h3>
+            <p class="step-desc">
+              Claude AI lee la factura y extrae NIT, proveedor, fecha, ítems,
+              IVA y retenciones automáticamente con 98% de precisión.
+            </p>
+          </div>
+          <div class="step-card reveal reveal-delay-2">
+            <div class="step-num">
+              <svg viewBox="0 0 24 24" fill="white" width="22" height="22" aria-hidden="true"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+            </div>
+            <span class="step-step-label">Paso 3</span>
+            <h3 class="step-title">Descarga lista para Siigo o Alegra</h3>
+            <p class="step-desc">
+              Exporta un Excel con todas las facturas parametrizadas y listas
+              para importar en Siigo Nube o Alegra. Cero digitación.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════
+         FEATURES
+    ════════════════════════════════════════════ -->
+    <section class="features-section">
+      <div class="container">
+        <div class="section-head center reveal">
+          <span class="section-tag">Funcionalidades</span>
+          <h2 class="section-title">Todo lo que necesita<br>una contadora moderna</h2>
+        </div>
+        <div class="features-grid">
+          <div class="feat-card reveal">
+            <div class="feat-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3L4 14h8l-1 7 9-11h-8l1-7z"/></svg>
+            </div>
+            <div>
+              <div class="feat-title">Extracción IA en segundos</div>
+              <div class="feat-desc">Lee campos complejos: retenciones, descuentos, ítems múltiples, datos del CUFE. Ni el formato más raro le gana.</div>
+            </div>
+          </div>
+          <div class="feat-card reveal reveal-delay-1">
+            <div class="feat-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm-1 14.414l-4.707-4.707 1.414-1.414L11 13.586l5.293-5.293 1.414 1.414L11 16.414z"/></svg>
+            </div>
+            <div>
+              <div class="feat-title">Integración nativa con Siigo y Alegra</div>
+              <div class="feat-desc">Conexión directa vía API oficial. La factura aparece causada en tu software sin que toques nada.</div>
+            </div>
+          </div>
+          <div class="feat-card reveal">
+            <div class="feat-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4zm2 2H5V5h14v14zm0-16H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>
+            </div>
+            <div>
+              <div class="feat-title">Dashboard de control total</div>
+              <div class="feat-desc">Ve el estado de cada factura: pendiente, causada, con error. Historial completo con filtros por fecha y proveedor.</div>
+            </div>
+          </div>
+          <div class="feat-card reveal reveal-delay-1">
+            <div class="feat-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-1 14l-3-3 1.41-1.41L11 12.17l4.59-4.58L17 9l-6 6z"/></svg>
+            </div>
+            <div>
+              <div class="feat-title">Cero riesgo de duplicados</div>
+              <div class="feat-desc">ContaFlow detecta facturas ya causadas y te avisa antes de volver a registrar. Tu contabilidad siempre limpia.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════
+         PRECIOS
+    ════════════════════════════════════════════ -->
+    <section class="pricing-section" id="precios">
+      <div class="container">
+        <div style="margin-bottom: 60px;">
+          <div class="pricing-copy reveal">
+            <span class="section-tag">Precios</span>
+            <h2 class="section-title">Planes escalables<br>para tu firma</h2>
+            <p class="section-sub">
+              Elige el plan que mejor se adapte a tu volumen.
+              Incluye todas las funciones, sin sorpresas.
+            </p>
+            <div class="pricing-perks">
+              <div class="perk">
+                <div class="perk-check">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
+                </div>
+                Extracción IA de todos los campos
+              </div>
+              <div class="perk">
+                <div class="perk-check">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
+                </div>
+                Causación automática en Siigo y Alegra
+              </div>
+              <div class="perk">
+                <div class="perk-check">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
+                </div>
+                Dashboard de seguimiento y auditoría
+              </div>
+              <div class="perk">
+                <div class="perk-check">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
+                </div>
+                Soporte prioritario vía WhatsApp
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px;">
+          <!-- BÁSICO -->
+          <div class="reveal">
+            <div class="pricing-card" style="background: var(--bg-card); border: 1.5px solid var(--border); position: relative;">
+              <div class="pricing-name" style="color: var(--text);">Básico</div>
+              <div class="pricing-amount">
+                <span class="pricing-currency" style="color: var(--blue);">$</span>
+                <span class="pricing-num" style="color: var(--blue);">350.000</span>
+                <span class="pricing-unit" style="color: var(--text-soft);">COP / mes</span>
+              </div>
+              <div class="pricing-desc" style="color: var(--text-soft);">Hasta 200 facturas/mes</div>
+              <div class="pricing-divider" style="background: var(--border);"></div>
+              <div class="pricing-features" style="color: var(--text-soft);">
+                <div class="pricing-feature">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" fill="var(--blue)"/></svg>
+                  Hasta 200 facturas al mes
+                </div>
+                <div class="pricing-feature">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" fill="var(--blue)"/></svg>
+                  Integración con Siigo Nube
+                </div>
+                <div class="pricing-feature">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" fill="var(--blue)"/></svg>
+                  Dashboard básico
+                </div>
+                <div class="pricing-feature">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" fill="var(--blue)"/></svg>
+                  Soporte por email
+                </div>
+              </div>
+              <button class="pricing-cta" style="background: var(--blue); margin-top: 20px;" onclick="window.location.href='login.html'">
+                Solicitar demo
+              </button>
+            </div>
+          </div>
+
+          <!-- PROFESIONAL -->
+          <div class="reveal reveal-delay-1">
+            <div class="pricing-card" style="transform: scale(1.05); box-shadow: 0 20px 60px rgba(0,102,255,.25);">
+              <div style="position: absolute; top: -12px; right: 20px; background: var(--blue); color: white; padding: 4px 12px; border-radius: var(--radius-pill); font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;">Más popular</div>
+              <div class="pricing-name">Profesional</div>
+              <div class="pricing-amount">
+                <span class="pricing-currency">$</span>
+                <span class="pricing-num">600.000</span>
+                <span class="pricing-unit">COP / mes</span>
+              </div>
+              <div class="pricing-desc">Hasta 500 facturas/mes</div>
+              <div class="pricing-divider"></div>
+              <div class="pricing-features">
+                <div class="pricing-feature">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
+                  Hasta 500 facturas al mes
+                </div>
+                <div class="pricing-feature">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
+                  Siigo Nube + Alegra
+                </div>
+                <div class="pricing-feature">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
+                  Dashboard avanzado + reportes
+                </div>
+                <div class="pricing-feature">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
+                  Soporte prioritario WhatsApp
+                </div>
+              </div>
+              <button class="pricing-cta" style="margin-top: 20px;" onclick="window.location.href='login.html'">
+                Solicitar demo
+              </button>
+            </div>
+          </div>
+
+          <!-- EMPRESARIAL -->
+          <div class="reveal reveal-delay-2">
+            <div class="pricing-card" style="background: var(--bg-card); border: 1.5px solid var(--border);">
+              <div class="pricing-name" style="color: var(--text);">Empresarial</div>
+              <div class="pricing-amount">
+                <span class="pricing-unit" style="color: var(--text-soft); font-size: 1.125rem;">Precio personalizado</span>
+              </div>
+              <div class="pricing-desc" style="color: var(--text-soft);">Volúmenes altos + SLA</div>
+              <div class="pricing-divider" style="background: var(--border);"></div>
+              <div class="pricing-features" style="color: var(--text-soft);">
+                <div class="pricing-feature">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" fill="var(--blue)"/></svg>
+                  Volúmenes ilimitados
+                </div>
+                <div class="pricing-feature">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" fill="var(--blue)"/></svg>
+                  Todos los integradores
+                </div>
+                <div class="pricing-feature">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" fill="var(--blue)"/></svg>
+                  SLA personalizado
+                </div>
+                <div class="pricing-feature">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" fill="var(--blue)"/></svg>
+                  Account manager dedicado
+                </div>
+              </div>
+              <button class="pricing-cta" style="background: var(--blue); margin-top: 20px;" onclick="window.location.href='login.html'">
+                Contáctanos
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════
+         CONTACTO
+    ════════════════════════════════════════════ -->
+    <section class="contact-section" id="contacto">
+      <div class="container">
+        <div class="contact-layout">
+          <div class="contact-copy reveal">
+            <span class="section-tag">Contacto</span>
+            <h2 class="section-title">¿Lista para automatizar<br>tu causación?</h2>
+            <p class="section-sub">
+              Cuéntanos cómo trabajas y te mostramos ContaFlow en acción
+              con tus propias facturas. Sin compromiso.
+            </p>
+            <div style="margin-top:28px;">
+              <div class="contact-detail">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>
+                hola@contaflow.co
+              </div>
+              <div class="contact-detail">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.62 10.79a15.05 15.05 0 006.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57a1 1 0 011 1V20a1 1 0 01-1 1C10.61 21 3 13.39 3 4a1 1 0 011-1h3.5a1 1 0 011 1c0 1.25.2 2.45.57 3.57.11.35.03.74-.24 1.02l-2.21 2.2z"/></svg>
+                +57 300 000 0000
+              </div>
+              <div class="contact-detail">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 010-5 2.5 2.5 0 010 5z"/></svg>
+                Bogotá, Colombia 🇨🇴
+              </div>
+            </div>
+          </div>
+
+          <div class="contact-form reveal reveal-delay-1">
+            <div class="form-title">Solicita tu demo gratuita</div>
+            <form id="contactForm" novalidate>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="nombre">Nombre completo</label>
+                  <input type="text" id="nombre" name="nombre" placeholder="María González" required />
+                </div>
+                <div class="form-group">
+                  <label for="email">Correo electrónico</label>
+                  <input type="email" id="email" name="email" placeholder="maria@empresa.com" required />
+                </div>
+              </div>
+              <div class="form-group">
+                <label for="empresa">Empresa o firma contable</label>
+                <input type="text" id="empresa" name="empresa" placeholder="Contadores Asociados S.A.S" required />
+              </div>
+              <div class="form-group">
+                <label for="facturas">¿Cuántas facturas causan al mes?</label>
+                <select id="facturas" name="facturas" required>
+                  <option value="" disabled selected>Selecciona un rango</option>
+                  <option value="1-50">1 – 50 facturas</option>
+                  <option value="51-200">51 – 200 facturas</option>
+                  <option value="201-500">201 – 500 facturas</option>
+                  <option value="500+">Más de 500 facturas</option>
+                </select>
+              </div>
+              <button type="submit" class="form-submit">Solicitar demo gratuita →</button>
+              <div class="form-privacy">Sin spam · Solo te contactamos si aceptas</div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ════════════════════════════════════════════
+       FOOTER
+  ════════════════════════════════════════════ -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <div>
+        <a href="#" aria-label="ContaFlow inicio" style="display:inline-block;margin-bottom:6px;">
+          <img src="./logo.png" alt="ContaFlow" height="36"
+               style="display:block;filter:brightness(0) invert(1);">
+        </a>
+        <div class="footer-co">
+          <span class="flag">🇨🇴</span>
+          Hecho con orgullo en Colombia
+        </div>
+      </div>
+      <span class="footer-copy">ContaFlow © 2026 — Colombia</span>
+      <nav class="footer-links" aria-label="Footer">
+        <a href="#">Términos</a>
+        <a href="#">Privacidad</a>
+        <a href="#contacto">Contacto</a>
+      </nav>
+    </div>
+  </footer>
+
+  <!-- ════════════════════════════════════════════
+       JS
+  ════════════════════════════════════════════ -->
+  <script>
+    // Navbar scroll effect
+    const navbar = document.getElementById('navbar');
+    window.addEventListener('scroll', () => {
+      navbar.classList.toggle('scrolled', window.scrollY > 20);
+    }, { passive: true });
+
+    // Reveal on scroll
+    const revealEls = document.querySelectorAll('.reveal');
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('visible');
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.12 });
+    revealEls.forEach(el => observer.observe(el));
+
+    // Form submit
+    document.getElementById('contactForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const btn = this.querySelector('.form-submit');
+      const nombre = this.nombre.value.trim();
+      if (!nombre || !this.email.value.trim() || !this.empresa.value.trim() || !this.facturas.value) {
+        btn.textContent = 'Completa todos los campos';
+        btn.style.background = '#EF4444';
+        setTimeout(() => {
+          btn.textContent = 'Solicitar demo gratuita →';
+          btn.style.background = '';
+        }, 2200);
+        return;
+      }
+      btn.textContent = '¡Listo! Pronto te contactamos ✓';
+      btn.style.background = '#10B981';
+      btn.disabled = true;
+    });
+
+    // Smooth anchor for hash links
+    document.querySelectorAll('a[href^="#"]').forEach(a => {
+      a.addEventListener('click', function(e) {
+        const target = document.querySelector(this.getAttribute('href'));
+        if (target) {
+          e.preventDefault();
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ContaFlow — Acceso</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --blue:        #0066FF;
+      --blue-dark:   #0052CC;
+      --blue-deeper: #003D99;
+      --blue-light:  #E8F0FF;
+      --blue-mid:    #4D94FF;
+      --text:        #0F172A;
+      --text-soft:   #475569;
+      --text-xsoft:  #94A3B8;
+      --bg:          #FFFFFF;
+      --bg-soft:     #F8FAFF;
+      --border:      #E2E8F0;
+      --shadow-md:   0 4px 32px rgba(0,102,255,.13), 0 2px 8px rgba(0,0,0,.07);
+      --radius:      14px;
+      --radius-pill: 999px;
+      --font: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+      --transition: .22s cubic-bezier(.4,0,.2,1);
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font);
+      color: var(--text);
+      background: var(--bg-soft);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Navbar ─────────────────────────────────────────────────────── */
+    .navbar {
+      background: rgba(255,255,255,.95);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+    }
+    .navbar-inner {
+      max-width: 1120px;
+      margin: 0 auto;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .logo { display: flex; align-items: center; text-decoration: none; }
+
+    /* ── Main ───────────────────────────────────────────────────────── */
+    main {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 48px 24px;
+    }
+
+    /* ── Card ───────────────────────────────────────────────────────── */
+    .login-card {
+      background: var(--bg);
+      border: 1.5px solid var(--border);
+      border-radius: 20px;
+      box-shadow: var(--shadow-md);
+      padding: 48px 44px 44px;
+      width: 100%;
+      max-width: 420px;
+      text-align: center;
+    }
+    .card-logo {
+      margin-bottom: 28px;
+      display: inline-block;
+    }
+    .card-logo img {
+      height: 52px;
+      display: block;
+    }
+    .card-title {
+      font-size: 1.625rem;
+      font-weight: 800;
+      letter-spacing: -.03em;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+    .card-sub {
+      font-size: .9375rem;
+      color: var(--text-soft);
+      margin-bottom: 36px;
+    }
+
+    /* ── Form ───────────────────────────────────────────────────────── */
+    .form-group {
+      text-align: left;
+      margin-bottom: 18px;
+    }
+    .form-group label {
+      display: block;
+      font-size: .8125rem;
+      font-weight: 600;
+      color: var(--text-soft);
+      margin-bottom: 7px;
+      letter-spacing: .02em;
+    }
+    .form-group input {
+      width: 100%;
+      padding: 13px 16px;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius);
+      font-size: .9375rem;
+      font-family: var(--font);
+      color: var(--text);
+      background: var(--bg);
+      transition: border-color var(--transition), box-shadow var(--transition);
+      outline: none;
+    }
+    .form-group input:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(0,102,255,.12);
+    }
+    .form-group input::placeholder { color: var(--text-xsoft); }
+
+    .btn-login {
+      width: 100%;
+      padding: 15px;
+      background: linear-gradient(135deg, var(--blue) 0%, var(--blue-dark) 100%);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius-pill);
+      font-size: 1rem;
+      font-weight: 700;
+      font-family: var(--font);
+      cursor: pointer;
+      margin-top: 8px;
+      box-shadow: 0 4px 16px rgba(0,102,255,.32);
+      transition: all var(--transition);
+      letter-spacing: -.01em;
+    }
+    .btn-login:hover {
+      background: linear-gradient(135deg, var(--blue-dark) 0%, var(--blue-deeper) 100%);
+      box-shadow: 0 8px 28px rgba(0,102,255,.42);
+      transform: translateY(-2px);
+    }
+    .btn-login:active { transform: translateY(0); }
+
+    .error-msg {
+      background: #FEF2F2;
+      border: 1px solid #FECACA;
+      color: #DC2626;
+      border-radius: var(--radius);
+      padding: 11px 16px;
+      font-size: .875rem;
+      font-weight: 500;
+      margin-top: 14px;
+      display: none;
+    }
+
+    .card-footer {
+      margin-top: 28px;
+      padding-top: 22px;
+      border-top: 1px solid var(--border);
+      font-size: .875rem;
+      color: var(--text-soft);
+    }
+    .card-footer a {
+      color: var(--blue);
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .card-footer a:hover { text-decoration: underline; }
+
+    /* ── Footer ─────────────────────────────────────────────────────── */
+    footer {
+      text-align: center;
+      padding: 20px 24px;
+      font-size: .8125rem;
+      color: var(--text-xsoft);
+      border-top: 1px solid var(--border);
+    }
+
+    /* ── Responsive ─────────────────────────────────────────────────── */
+    @media (max-width: 480px) {
+      .login-card { padding: 36px 24px 32px; }
+      .card-title { font-size: 1.375rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Navbar -->
+  <header class="navbar">
+    <div class="navbar-inner">
+      <a href="index.html" class="logo" aria-label="ContaFlow inicio">
+        <img src="./logo.png" alt="ContaFlow" height="36" style="display:block;">
+      </a>
+      <a href="index.html" style="font-size:.875rem;color:#475569;text-decoration:none;font-weight:500;">
+        ← Volver al inicio
+      </a>
+    </div>
+  </header>
+
+  <!-- Login card -->
+  <main>
+    <div class="login-card">
+      <a href="index.html" class="card-logo">
+        <img src="./logo.png" alt="ContaFlow">
+      </a>
+      <h1 class="card-title">Bienvenido a ContaFlow</h1>
+      <p class="card-sub">Ingresa tus credenciales para continuar</p>
+
+      <form id="loginForm" novalidate>
+        <div class="form-group">
+          <label for="email">Correo electrónico</label>
+          <input
+            type="email"
+            id="email"
+            name="email"
+            placeholder="demo@contaflow.co"
+            autocomplete="email"
+            required
+          />
+        </div>
+        <div class="form-group">
+          <label for="password">Contraseña</label>
+          <input
+            type="password"
+            id="password"
+            name="password"
+            placeholder="••••••••••"
+            autocomplete="current-password"
+            required
+          />
+        </div>
+        <button type="submit" class="btn-login">Entrar →</button>
+        <div class="error-msg" id="errorMsg">
+          ❌ Correo o contraseña incorrectos. Verifica tus datos.
+        </div>
+      </form>
+
+      <div class="card-footer">
+        ¿No tienes cuenta?
+        <a href="index.html#contacto">Solicitar acceso</a>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    ContaFlow © 2026 &nbsp;·&nbsp; Hecho en Colombia 🇨🇴
+  </footer>
+
+  <script>
+    const APP_URL = 'http://152.202.51.22:8501';
+
+    // Credenciales válidas (la auth real está en Streamlit)
+    const VALID = {
+      email:    'demo@contaflow.co',
+      password: 'ContaFlow2024',
+    };
+
+    document.getElementById('loginForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const email    = document.getElementById('email').value.trim().toLowerCase();
+      const password = document.getElementById('password').value;
+      const errorMsg = document.getElementById('errorMsg');
+      const btn      = this.querySelector('.btn-login');
+
+      errorMsg.style.display = 'none';
+
+      if (email === VALID.email && password === VALID.password) {
+        btn.textContent = '✓ Accediendo...';
+        btn.style.background = 'linear-gradient(135deg,#10B981,#059669)';
+        setTimeout(() => { window.location.href = APP_URL; }, 600);
+      } else {
+        errorMsg.style.display = 'block';
+        document.getElementById('password').value = '';
+        document.getElementById('password').focus();
+      }
+    });
+
+    // Enter en cualquier campo
+    document.getElementById('email').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') document.getElementById('password').focus();
+    });
+  </script>
+</body>
+</html>
