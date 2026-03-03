@@ -330,7 +330,7 @@ st.markdown(PROFESSIONAL_CSS, unsafe_allow_html=True)
 # LOGIN — verificar autenticación antes de mostrar la app
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-_name, _auth_status, _username = _authenticator.login("ContaFlow — Acceso", "unrendered")
+_name, _auth_status, _username = _authenticator.login(location="unrendered")
 
 if _auth_status is False:
     st.error("❌ Usuario o contraseña incorrectos.")
