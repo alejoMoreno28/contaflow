@@ -31,8 +31,31 @@ from extractor import process_pdf, process_image, IMAGE_MEDIA_TYPES
 _USERS_YAML = Path(__file__).parent / "users.yaml"
 
 
+_DEFAULT_CONFIG = {
+    "credentials": {
+        "usernames": {
+            "demo": {
+                "email": "demo@contaflow.co",
+                "name": "Demo ContaFlow",
+                "password": "ContaFlow2024",
+            }
+        }
+    },
+    "cookie": {
+        "expiry_days": 30,
+        "key": "contaflow_secret_key_2024",
+        "name": "contaflow_auth",
+    },
+    "preauthorized": {"emails": []},
+}
+
+
 def _load_auth_config() -> dict:
-    """Lee users.yaml y hashea las contraseñas en texto plano si las hay."""
+    """Lee users.yaml (lo crea si no existe) y hashea contraseñas en texto plano."""
+    if not _USERS_YAML.exists():
+        with open(_USERS_YAML, "w", encoding="utf-8") as f:
+            yaml.dump(_DEFAULT_CONFIG, f, default_flow_style=False, allow_unicode=True)
+
     with open(_USERS_YAML, encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
