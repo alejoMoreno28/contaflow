@@ -745,7 +745,7 @@ if st.session_state.wizard_step == 1:
 
                 if _results:
                     # Limpiar caché de sugerencias IA de lote anterior
-                    for _ck in [k for k in st.session_state if k.startswith(("ai_suggest_", "apply_all_account_"))]:
+                    for _ck in [k for k in st.session_state if k.startswith(("ai_suggest_", "apply_all_account_", "apply_all_tax_"))]:
                         del st.session_state[_ck]
                     st.session_state.batch_results = _results
                     st.session_state.batch_names   = _names
@@ -897,35 +897,51 @@ elif st.session_state.wizard_step == 2:
                     "valor_total":    float(_datos.get("subtotal") or 0),
                 }]
 
-            # Construir filas con pre-relleno: memoria → sugerencia IA → vacío
+            # Construir filas: memoria → sugerencia IA (cuenta + impuesto) → vacío
             _item_rows = []
-            _apply_all_label = st.session_state.get(f"apply_all_account_{_i}")
+            _apply_all_acc = st.session_state.get(f"apply_all_account_{_i}")
+            _apply_all_tax = st.session_state.get(f"apply_all_tax_{_i}")
+
             for _item_idx, _item in enumerate(_items_raw):
                 _desc = str(_item.get("descripcion") or "")
                 _mem  = get_item_memory(_e_nit, _desc) if (_ALEGRA_OK and _e_nit) else {}
 
-                # Resolver etiqueta de cuenta: apply_all > memoria > IA
+                # Obtener sugerencia IA (dict {account_id, tax_id}), cacheada por ítem
+                _ai_result: dict = {}
+                if _has_alegra and _acc_opts and _desc:
+                    _ai_key = f"ai_suggest_{_i}_{_item_idx}"
+                    if _ai_key not in st.session_state:
+                        st.session_state[_ai_key] = suggest_account_for_item(
+                            _desc, _e_prov, _accounts, _taxes
+                        )
+                    _ai_result = st.session_state[_ai_key] or {}
+
+                # Cuenta: apply_all > memoria > IA
                 _cuenta_label = _NONE_LABEL
                 if _has_alegra and _acc_opts:
-                    if _apply_all_label and _apply_all_label != _NONE_LABEL:
-                        _cuenta_label = _apply_all_label
+                    if _apply_all_acc and _apply_all_acc != _NONE_LABEL:
+                        _cuenta_label = _apply_all_acc
                     else:
                         _cuenta_label = _account_id_to_label(_mem.get("cuenta_id"))
-                        if _cuenta_label == _NONE_LABEL and _desc:
-                            # Sugerencia IA (una sola llamada por ítem, cacheada en session_state)
-                            _ai_key = f"ai_suggest_{_i}_{_item_idx}"
-                            if _ai_key not in st.session_state:
-                                st.session_state[_ai_key] = suggest_account_for_item(
-                                    _desc, _e_prov, _accounts
-                                )
-                            _cuenta_label = _account_id_to_label(st.session_state[_ai_key])
+                        if _cuenta_label == _NONE_LABEL:
+                            _cuenta_label = _account_id_to_label(_ai_result.get("account_id"))
+
+                # Impuesto: apply_all > memoria > IA
+                _tax_label = _NONE_LABEL
+                if _has_alegra and len(_tax_opts) > 1:
+                    if _apply_all_tax and _apply_all_tax != _NONE_LABEL:
+                        _tax_label = _apply_all_tax
+                    else:
+                        _tax_label = _tax_id_to_label(_mem.get("impuesto_id"))
+                        if _tax_label == _NONE_LABEL:
+                            _tax_label = _tax_id_to_label(_ai_result.get("tax_id"))
 
                 _item_rows.append({
                     "Descripción":      _desc,
                     "Precio":           float(_item.get("valor_total") or _item.get("valor_unitario") or 0),
                     "Cantidad":         float(_item.get("cantidad") or 1),
                     **({"Cuenta": _cuenta_label} if _has_alegra and _acc_opts else {}),
-                    **({"Impuesto": _tax_id_to_label(_mem.get("impuesto_id"))} if _has_alegra and len(_tax_opts) > 1 else {}),
+                    **({"Impuesto": _tax_label} if _has_alegra and len(_tax_opts) > 1 else {}),
                     **({"Centro de Costo": _cc_id_to_label(_mem.get("centro_costo_id"))} if _has_alegra and len(_cc_opts) > 1 else {}),
                 })
 
@@ -961,15 +977,17 @@ elif st.session_state.wizard_step == 2:
                 key=f"items_editor_{_i}",
             )
 
-            # ── Botón "Aplicar cuenta del primer ítem a todos" ────────────
+            # ── Botón "Aplicar cuenta e impuesto del primer ítem a todos" ──
             if _has_alegra and _acc_opts and len(_item_rows) > 1 and "Cuenta" in _df_items.columns:
                 if st.button(
-                    "↓ Aplicar cuenta del primer ítem a todos",
+                    "↓ Aplicar cuenta e impuesto del primer ítem a todos",
                     key=f"btn_apply_all_{_i}",
-                    help="Copia la cuenta del primer ítem a todas las filas de esta factura",
+                    help="Copia la cuenta y el impuesto del primer ítem a todas las filas de esta factura",
                 ):
-                    _first_label = str(_edited_df.iloc[0].get("Cuenta", _NONE_LABEL))
-                    st.session_state[f"apply_all_account_{_i}"] = _first_label
+                    _first_acc = str(_edited_df.iloc[0].get("Cuenta", _NONE_LABEL))
+                    _first_tax = str(_edited_df.iloc[0].get("Impuesto", _NONE_LABEL)) if "Impuesto" in _edited_df.columns else _NONE_LABEL
+                    st.session_state[f"apply_all_account_{_i}"] = _first_acc
+                    st.session_state[f"apply_all_tax_{_i}"]     = _first_tax
                     st.rerun()
 
             # ── Retenciones por factura ───────────────────────────────────
