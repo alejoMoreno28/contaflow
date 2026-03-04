@@ -10,11 +10,8 @@ from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 
-import bcrypt
-import yaml
 import pandas as pd
 import streamlit as st
-import streamlit_authenticator as stauth
 
 try:
     from dotenv import load_dotenv
@@ -28,60 +25,8 @@ from extractor import process_pdf, process_image, IMAGE_MEDIA_TYPES
 # AUTENTICACIÓN
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-_USERS_YAML = Path(__file__).parent / "users.yaml"
-
-
-_DEFAULT_CONFIG = {
-    "credentials": {
-        "usernames": {
-            "demo": {
-                "email": "demo@contaflow.co",
-                "name": "Demo ContaFlow",
-                "password": "ContaFlow2024",
-            }
-        }
-    },
-    "cookie": {
-        "expiry_days": 30,
-        "key": "contaflow_secret_key_2024",
-        "name": "contaflow_auth",
-    },
-    "preauthorized": {"emails": []},
-}
-
-
-def _load_auth_config() -> dict:
-    """Lee users.yaml (lo crea si no existe) y hashea contraseñas en texto plano."""
-    if not _USERS_YAML.exists():
-        with open(_USERS_YAML, "w", encoding="utf-8") as f:
-            yaml.dump(_DEFAULT_CONFIG, f, default_flow_style=False, allow_unicode=True)
-
-    with open(_USERS_YAML, encoding="utf-8") as f:
-        config = yaml.safe_load(f)
-
-    changed = False
-    for udata in config["credentials"]["usernames"].values():
-        pw = udata.get("password", "")
-        if pw and not pw.startswith("$2b$"):
-            udata["password"] = bcrypt.hashpw(
-                pw.encode(), bcrypt.gensalt()
-            ).decode()
-            changed = True
-
-    if changed:
-        with open(_USERS_YAML, "w", encoding="utf-8") as f:
-            yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
-
-    return config
-
-
-_auth_config   = _load_auth_config()
-_authenticator = stauth.Authenticate(
-    _auth_config["credentials"],
-    _auth_config["cookie"]["name"],
-    _auth_config["cookie"]["key"],
-    _auth_config["cookie"]["expiry_days"],
-)
+_VALID_EMAIL    = "demo@contaflow.co"
+_VALID_PASSWORD = "ContaFlow2024"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # PAGE CONFIG
@@ -330,17 +275,42 @@ st.markdown(PROFESSIONAL_CSS, unsafe_allow_html=True)
 # LOGIN — verificar autenticación antes de mostrar la app
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-_name, _auth_status, _username = _authenticator.login(location="main")
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
 
-if _auth_status is False:
-    st.error("❌ Usuario o contraseña incorrectos.")
-    st.stop()
-elif _auth_status is None:
+if not st.session_state.authenticated:
     st.markdown("""
-    <div style="text-align:center;margin-top:32px;color:#475569;font-size:.9375rem;">
-        Ingresa tus credenciales para acceder a ContaFlow.
+    <div style="max-width:420px;margin:80px auto 0;padding:40px 36px;
+                background:#fff;border:1.5px solid #E2E8F0;border-radius:20px;
+                box-shadow:0 8px 40px rgba(0,102,255,0.10);">
+        <div style="text-align:center;margin-bottom:32px;">
+            <div style="display:inline-flex;align-items:center;justify-content:center;
+                        width:56px;height:56px;background:linear-gradient(135deg,#0066FF,#0052CC);
+                        border-radius:16px;box-shadow:0 4px 16px rgba(0,102,255,0.3);margin-bottom:16px;">
+                <span style="font-size:28px;">⚡</span>
+            </div>
+            <div style="font-size:1.75rem;font-weight:800;color:#0F172A;letter-spacing:-0.04em;">
+                Conta<span style="color:#0066FF;">Flow</span>
+            </div>
+            <div style="font-size:0.875rem;color:#94A3B8;font-weight:500;margin-top:4px;">
+                Plataforma de facturación electrónica
+            </div>
+        </div>
     </div>
     """, unsafe_allow_html=True)
+
+    with st.form("login_form"):
+        email = st.text_input("Correo electrónico", placeholder="usuario@empresa.co")
+        password = st.text_input("Contraseña", type="password", placeholder="••••••••")
+        submitted = st.form_submit_button("Ingresar", use_container_width=True, type="primary")
+
+    if submitted:
+        if email == _VALID_EMAIL and password == _VALID_PASSWORD:
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error("Credenciales incorrectas")
+
     st.stop()
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -398,8 +368,10 @@ with st.sidebar:
         st.caption("Sube tus facturas para comenzar.")
 
     st.divider()
-    st.markdown(f"👤 **{_name}**")
-    _authenticator.logout("Cerrar sesión", "sidebar")
+    st.markdown(f"👤 **Demo ContaFlow**")
+    if st.button("Cerrar sesión", use_container_width=True):
+        st.session_state.authenticated = False
+        st.rerun()
     st.caption("**ContaFlow © 2026** • Colombia 🇨🇴")
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
