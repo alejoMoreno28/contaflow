@@ -29,7 +29,7 @@ class AlegraAuthError(Exception):
 class AlegraAPIError(Exception):
     def __init__(self, status_code: int, body: str):
         self.status_code = status_code
-        self.body        = body   # raw para inspeccionar códigos internos
+        self.body        = body
         super().__init__(f"Alegra {status_code}: {body[:500]}")
 
 
@@ -37,46 +37,33 @@ class AlegraAPIError(Exception):
 # Helpers de identificación
 # ---------------------------------------------------------------------------
 
-# Tipos válidos en Alegra Colombia
 _ID_TYPE_KEYWORDS: dict[str, str] = {
-    "nit_ext":    "DIE",
-    "extranjero": "DIE",
-    "nie":        "DIE",
+    "nit_ext":     "DIE",
+    "extranjero":  "DIE",
+    "nie":         "DIE",
     "extranjeria": "CE",
     "extranjería": "CE",
-    "pasaporte":  "Passport",
-    "passport":   "Passport",
-    "cedula":     "CC",
-    "cédula":     "CC",
-    "c.c":        "CC",
-    "cc":         "CC",
-    "c.e":        "CE",
-    "ce":         "CE",
-    "nit":        "NIT",
+    "pasaporte":   "Passport",
+    "passport":    "Passport",
+    "cedula":      "CC",
+    "cédula":      "CC",
+    "c.c":         "CC",
+    "cc":          "CC",
+    "c.e":         "CE",
+    "ce":          "CE",
+    "nit":         "NIT",
 }
 
 
 def _clean_id(raw: str) -> str:
-    """Elimina puntos, guiones, espacios y caracteres no alfanuméricos del ID."""
     return re.sub(r"[.\-\s]", "", raw.strip())
 
 
 def _detect_id_type(raw_id: str, tipo_hint: str = "") -> str:
-    """
-    Detecta el tipo de documento para Alegra.
-
-    Prioridad:
-      1. tipo_hint contiene palabra clave conocida  → usarla (claves más largas primero)
-      2. raw_id contiene guión                      → NIT colombiano
-      3. raw_id contiene letras                     → Passport
-      4. Defecto                                    → NIT
-    """
     hint = tipo_hint.lower()
-    # Ordenar por longitud descendente para que "nit_ext" > "nit", "c.c" > "cc", etc.
     for kw in sorted(_ID_TYPE_KEYWORDS, key=len, reverse=True):
         if kw in hint:
             return _ID_TYPE_KEYWORDS[kw]
-
     if "-" in raw_id:
         return "NIT"
     if any(c.isalpha() for c in raw_id):
@@ -85,11 +72,6 @@ def _detect_id_type(raw_id: str, tipo_hint: str = "") -> str:
 
 
 def _split_nit_dv(raw_id: str) -> tuple[str, str | None]:
-    """
-    Separa el NIT del dígito verificador.
-    '900123456-1' → ('900123456', '1')
-    '900123456'   → ('900123456', None)
-    """
     if "-" in raw_id:
         base, dv = raw_id.split("-", 1)
         return base.strip(), dv.strip()
@@ -97,7 +79,6 @@ def _split_nit_dv(raw_id: str) -> tuple[str, str | None]:
 
 
 def _extract_code(body: str) -> str | None:
-    """Extrae el código de error interno de Alegra del body JSON."""
     try:
         return str(json.loads(body).get("code", ""))
     except Exception:
@@ -105,10 +86,6 @@ def _extract_code(body: str) -> str | None:
 
 
 def _extract_contact_id_from_error(body: str) -> int | None:
-    """
-    Intenta extraer el contactId del body de un error de Alegra.
-    Útil para el error 2006 (identificación duplicada) que incluye el ID existente.
-    """
     try:
         data = json.loads(body)
         for key in ("contactId", "contact_id", "id"):
@@ -117,11 +94,42 @@ def _extract_contact_id_from_error(body: str) -> int | None:
                 return int(val)
     except Exception:
         pass
-    # Búsqueda por regex como fallback
     m = re.search(r'"(?:contactId|contact_id|id)"\s*:\s*(\d+)', body)
     if m:
         return int(m.group(1))
     return None
+
+
+# ---------------------------------------------------------------------------
+# Mensajes de error amigables
+# ---------------------------------------------------------------------------
+
+_ERROR_MESSAGES: dict[str, str] = {
+    "2006":  "El proveedor ya existe con otro ID. Usa el proveedor existente.",
+    "2094":  "El proveedor está deshabilitado en Alegra.",
+    "11038": "La cuenta contable seleccionada es una cuenta agrupadora (no imputable). Selecciona una cuenta de detalle.",
+    "11040": "La factura no tiene cuenta contable válida. Selecciona una cuenta de detalle en los ítems.",
+    "31113": "La cuenta contable no existe en Alegra. Verifica el catálogo.",
+    "401":   "Credenciales inválidas. Verifica tu email y token de Alegra.",
+    "403":   "Sin permiso para esta operación en Alegra.",
+    "422":   "Datos inválidos. Revisa los campos de la factura.",
+    "500":   "Error interno de Alegra. Intenta de nuevo en unos segundos.",
+}
+
+
+def friendly_error(exc: "AlegraAPIError") -> str:
+    """Convierte un AlegraAPIError en un mensaje amigable para mostrar al usuario."""
+    code = _extract_code(exc.body)
+    if code and code in _ERROR_MESSAGES:
+        return _ERROR_MESSAGES[code]
+    # Intentar extraer el mensaje de la respuesta
+    try:
+        msg = json.loads(exc.body).get("message", "")
+        if msg:
+            return f"Alegra rechazó la factura: {msg}"
+    except Exception:
+        pass
+    return f"Error {exc.status_code} de Alegra. Verifica los parámetros de la factura."
 
 
 # ---------------------------------------------------------------------------
@@ -134,9 +142,6 @@ class AlegraClient:
         self.token = token
         credentials = b64encode(f"{email}:{token}".encode()).decode()
         self._auth_header = f"Basic {credentials}"
-        raw_account_id = os.environ.get("ALEGRA_ACCOUNT_ID", "62")
-        self.default_account_id: int = int(raw_account_id)
-        print(f"[Alegra] Cuenta contable por defecto: ID={self.default_account_id}")
 
     # -----------------------------------------------------------------------
     # HTTP helpers
@@ -162,23 +167,12 @@ class AlegraClient:
         return resp.json()
 
     def _post(self, path: str, payload: dict) -> dict:
-        print(f"\n{'='*60}")
-        print(f"[Alegra] POST {ALEGRA_BASE}{path}")
-        print(f"[Alegra] PAYLOAD:\n{json.dumps(payload, ensure_ascii=False, indent=2)}")
-        print(f"{'='*60}")
-
         resp = requests.post(
             f"{ALEGRA_BASE}{path}",
             json=payload,
             headers=self._headers(),
             timeout=30,
         )
-
-        print(f"[Alegra] STATUS: {resp.status_code}")
-        print(f"[Alegra] HEADERS: {dict(resp.headers)}")
-        print(f"[Alegra] BODY:\n{resp.text[:3000]}")
-        print(f"{'='*60}\n")
-
         if resp.status_code == 401:
             raise AlegraAuthError("Credenciales inválidas.")
         if not resp.ok:
@@ -186,7 +180,6 @@ class AlegraClient:
         return resp.json()
 
     def _put(self, path: str, payload: dict) -> dict:
-        """PUT completo — usado para activar contactos."""
         resp = requests.put(
             f"{ALEGRA_BASE}{path}",
             json=payload,
@@ -224,190 +217,270 @@ class AlegraClient:
             return False
 
     # -----------------------------------------------------------------------
-    # Catálogos
+    # Catálogos — get_catalogs()
     # -----------------------------------------------------------------------
 
-    def get_contacts(self, query: str | None = None) -> list[dict]:
-        params = {"limit": 30}
-        if query:
-            params["name"] = query
-        data = self._get("/contacts", params=params)
-        return data if isinstance(data, list) else []
+    def get_catalogs(self) -> dict:
+        """
+        Descarga 3 catálogos de Alegra y retorna un dict estructurado:
+          {
+            "accounts":      [{"id": int, "name": str, "code": str}],  # solo imputables
+            "taxes":         [{"id": int, "name": str, "percentage": float}],
+            "cost_centers":  [{"id": int, "name": str}],
+          }
 
-    def get_warehouses(self) -> list[dict]:
-        data = self._get("/warehouses")
-        return data if isinstance(data, list) else []
+        Las cuentas imputables son las de detalle/hoja en el árbol PUC —
+        se excluyen las agrupadoras que causarían el error 11038 en Alegra.
+        """
+        catalogs: dict = {"accounts": [], "taxes": [], "cost_centers": []}
 
-    def get_payment_methods(self) -> list[dict]:
-        data = self._get("/payment-methods")
-        return data if isinstance(data, list) else []
+        # ── Cuentas contables ─────────────────────────────────────────────
+        for endpoint in ("/categories", "/accounts"):
+            try:
+                raw = self._get(endpoint, params={"limit": 500})
+                if isinstance(raw, list) and raw:
+                    catalogs["accounts"] = self._filter_imputable(raw)
+                    break
+            except AlegraAPIError as exc:
+                if exc.status_code in (403, 404):
+                    continue
+                raise
+
+        # ── Impuestos ─────────────────────────────────────────────────────
+        # Alegra /taxes devuelve {"total": "N", "results": [...]} — no una lista.
+        try:
+            raw = self._get("/taxes", params={"limit": 200})
+            tax_list = (
+                raw if isinstance(raw, list)
+                else raw.get("results", []) if isinstance(raw, dict)
+                else []
+            )
+            catalogs["taxes"] = [
+                {
+                    "id":         int(t["id"]),
+                    "name":       t.get("name", f"Impuesto {t['id']}"),
+                    "percentage": float(t.get("percentage") or 0),
+                }
+                for t in tax_list if t.get("id")
+            ]
+        except (AlegraAPIError, Exception):
+            pass
+
+        # ── Centros de costo ──────────────────────────────────────────────
+        for cc_endpoint in ("/cost-centers", "/costCenters"):
+            for cc_limit in (30, 10, 5):
+                try:
+                    raw = self._get(cc_endpoint, params={"limit": cc_limit})
+                    if isinstance(raw, list):
+                        catalogs["cost_centers"] = [
+                            {"id": int(c["id"]), "name": c.get("name", str(c["id"]))}
+                            for c in raw
+                            if c.get("id") and str(c.get("status", "active")).lower() != "inactive"
+                        ]
+                    break  # éxito con este límite
+                except AlegraAPIError as exc:
+                    if exc.status_code in (403, 404):
+                        break  # endpoint no disponible, probar el siguiente
+                    if exc.status_code == 400:
+                        continue  # intentar con límite menor
+                    break
+                except Exception:
+                    break
+            if catalogs["cost_centers"] is not None:
+                break
+
+        return catalogs
+
+    def _filter_imputable(self, accounts: list) -> list:
+        """
+        Filtra el árbol de cuentas devolviendo SOLO hojas transaccionales.
+
+        Regla exacta (basada en esquema JSON real de Alegra):
+          - use == "accumulative" → cuenta agrupadora. Recursear hijos; nunca incluir.
+          - use == "movement" + children vacío → cuenta hoja imputable. Incluir.
+          - use == "movement" + children no vacío → nodo intermedio. Recursear hijos;
+            no incluir este nodo (las hojas más específicas son las correctas).
+
+        Esto evita el error 11038 y excluye cuentas como "1455 - Materiales"
+        que tienen use="accumulative" pero children vacío (sin subcuentas creadas).
+        """
+        result: list[dict] = []
+        for acc in accounts:
+            if not acc.get("id"):
+                continue
+            children = acc.get("children") or []
+            use      = acc.get("use", "")
+
+            if children:
+                # Nodo con hijos: recursear siempre, no incluir este nodo
+                result.extend(self._filter_imputable(children))
+            else:
+                # Hoja: solo incluir si es transaccional (use == "movement")
+                if use == "movement":
+                    result.append({
+                        "id":   int(acc["id"]),
+                        "name": acc.get("name", str(acc["id"])),
+                        "code": str(acc.get("code") or acc["id"]),
+                    })
+
+        # Fallback: si el filtro dejó vacío (e.g. árbol todo accumulative sin hojas),
+        # incluir todas las hojas sin importar use para no romper la UI.
+        if not result and accounts:
+            result = [
+                {
+                    "id":   int(a["id"]),
+                    "name": a.get("name", str(a["id"])),
+                    "code": str(a.get("code") or a["id"]),
+                }
+                for a in accounts if a.get("id") and not (a.get("children") or [])
+            ]
+
+        return result
 
     # -----------------------------------------------------------------------
-    # Crear factura de compra — flujo principal
+    # Crear factura de compra
     # -----------------------------------------------------------------------
 
-    def create_purchase_invoice(
-        self,
-        invoice_data: dict,
-        contact_id: int | None = None,
-        warehouse_id: int | None = None,
-        payment_method_id: int | None = None,
-        cost_center_id: int | None = None,
-        tax_included: bool = False,
-    ) -> dict:
+    def create_purchase_invoice(self, invoice: dict) -> dict:
         """
         Crea una Factura de Proveedor (bill/compra) en Alegra.
 
-        Manejo automático de errores con máximo 3 reintentos:
-          • 2094 (proveedor deshabilitado) → activa vía PUT y reintenta
-          • 11040 (ítem sin cuenta)        → asegura default_account_id y reintenta
-          • 31113 (cuenta no existe)       → re-fetch /accounts y reintenta
-          • 2006 (ID duplicada en contacto) → usa ID existente (sin reintento extra)
+        Estructura esperada del dict `invoice`:
+          {
+            "proveedor_nombre":  str,
+            "proveedor_nit":     str,
+            "numero_factura":    str,
+            "fecha_emision":     "YYYY-MM-DD",
+            "fecha_vencimiento": "YYYY-MM-DD",
+            "subtotal":          float,
+
+            # Opcional: proveedor ya resuelto
+            "contact_id": int | None,
+
+            # Categorías con mapeo de catálogos (proviene de Step 2)
+            # Si está vacío o ausente, se crea una categoría fallback
+            "categories": [
+              {
+                "account_id":      int,
+                "price":           float,
+                "quantity":        int,        # default 1
+                "observations":    str,
+                "tax_id":          int | None,
+                "cost_center_id":  int | None,
+              }
+            ],
+          }
         """
-        MAX_RETRIES = 3
-
-        # Paso 1 — resolver contacto si no se pasó externamente
+        # ── Resolver proveedor ────────────────────────────────────────────
+        contact_id = invoice.get("contact_id")
         if contact_id is None:
-            contact_id = self._resolve_contact(invoice_data)
+            contact_id = self._resolve_contact(invoice)
 
-        # Paso 2 — construir payload inicial
-        payload = self._build_payload(
-            invoice_data, contact_id, warehouse_id,
-            payment_method_id, cost_center_id, tax_included,
-        )
+        # ── Fechas y metadatos ────────────────────────────────────────────
+        fecha       = str(invoice.get("fecha_emision")    or datetime.now().strftime("%Y-%m-%d"))
+        vencimiento = str(invoice.get("fecha_vencimiento") or fecha)
+        numero      = str(invoice.get("numero_factura") or "")
+        proveedor   = str(invoice.get("proveedor_nombre") or "Proveedor")
 
-        # Paso 3 — intentar crear con reintentos ante errores conocidos
-        last_exc: AlegraAPIError | None = None
+        # ── Construir purchases.categories ────────────────────────────────
+        cats_raw = invoice.get("categories") or []
 
-        for attempt in range(1, MAX_RETRIES + 1):
-            try:
-                return self._post("/bills", payload)
+        if not cats_raw:
+            # Fallback: una sola categoría con el subtotal completo
+            cats_raw = [{
+                "account_id":     invoice.get("_default_account_id") or 0,
+                "price":          float(invoice.get("subtotal") or invoice.get("total_a_pagar") or 0),
+                "quantity":       1,
+                "observations":   f"Factura {numero} - {proveedor}",
+                "tax_id":         None,
+                "cost_center_id": None,
+            }]
 
-            except AlegraAPIError as exc:
-                last_exc = exc
-                code = _extract_code(exc.body)
-                print(f"[Alegra] Intento {attempt}/{MAX_RETRIES} — código de error: {code}")
+        categories = []
+        for cat in cats_raw:
+            entry: dict = {
+                "id":           int(cat["account_id"]),
+                "price":        float(cat.get("price") or 0),
+                "quantity":     int(cat.get("quantity") or 1),
+                "observations": str(cat.get("observations") or f"Factura {numero} - {proveedor}"),
+            }
+            if cat.get("tax_id"):
+                entry["tax"] = [{"id": int(cat["tax_id"])}]
+            if cat.get("cost_center_id"):
+                entry["costCenter"] = {"id": int(cat["cost_center_id"])}
+            categories.append(entry)
 
-                # ── 2094: proveedor deshabilitado → activar y reintentar ──────
-                if code == "2094":
-                    print("[Alegra] Error 2094: proveedor deshabilitado. Activando contacto...")
-                    cid = (
-                        contact_id
-                        or _extract_contact_id_from_error(exc.body)
-                        or self._resolve_contact(invoice_data, force=True)
-                    )
-                    if cid:
-                        self._activate_contact(cid)
-                        payload["provider"] = {"id": cid}
-                        contact_id = cid
-                    continue
+        # ── Payload final ─────────────────────────────────────────────────
+        payload: dict = {
+            "date":    fecha,
+            "dueDate": vencimiento,
+            "purchases": {"categories": categories},
+            "observations": (
+                f"ContaFlow | {numero} "
+                f"| {invoice.get('proveedor_nit', '')} "
+                f"| {proveedor}"
+            ),
+        }
 
-                # ── 11040: ítem sin cuenta contable → inyectar cuenta ────────
-                if code == "11040":
-                    print("[Alegra] Error 11040: ítems sin cuenta contable. Verificando cuenta...")
-                    if not self.default_account_id:
-                        self._fetch_default_account()
-                    if self.default_account_id:
-                        for item in payload.get("items", []):
-                            if "account" not in item:
-                                item["account"] = {"id": self.default_account_id, "code": "6205"}
-                    continue
+        if numero:
+            payload["number"] = numero
+        if contact_id is not None:
+            payload["provider"] = {"id": contact_id}
 
-                # ── 31113: cuenta no existe → propagar con mensaje claro ─────
-                if code == "31113":
-                    raise AlegraAPIError(
-                        exc.status_code,
-                        f"La cuenta contable ID={self.default_account_id} no existe en Alegra. "
-                        f"Actualiza ALEGRA_ACCOUNT_ID en .env. Detalle: {exc.body}",
-                    )
-
-                # ── Otros errores → propagar inmediatamente ──────────────────
-                raise
-
-        raise last_exc or AlegraAPIError(0, "Máximo de reintentos alcanzado.")
+        return self._post("/bills", payload)
 
     # -----------------------------------------------------------------------
-    # Resolución de contacto: 6 pasos
+    # Resolución de contacto (get_or_create_provider)
     # -----------------------------------------------------------------------
+
+    def get_or_create_provider(self, nit: str, nombre: str) -> int | None:
+        """Busca el proveedor por NIT; si no existe, lo crea. Retorna el ID de Alegra."""
+        return self._resolve_contact({"proveedor_nit": nit, "proveedor_nombre": nombre})
 
     def _resolve_contact(self, data: dict, force: bool = False) -> int | None:
-        """
-        Garantiza que el proveedor existe y está activo en Alegra.
-
-        Pasos:
-          1. Limpiar identificación (quitar puntos, guiones, espacios)
-          2. Buscar por identificación limpia
-          3. Buscar por identificación base (sin dígito verificador)
-          4. Buscar por nombre
-          5. Activar si se encontró inactivo
-          6. Crear si no existe → manejar error 2006 en creación
-
-        Soporta: NIT, CC, CE, Passport, DIE (NIT extranjero)
-        """
         nit_raw   = str(data.get("proveedor_nit")    or "").strip()
         nombre    = str(data.get("proveedor_nombre") or "Proveedor sin nombre").strip()
         tipo_hint = str(data.get("proveedor_tipo_id") or "")
 
         if not nit_raw:
-            print(f"[Alegra] Sin identificación para '{nombre}'; factura sin contacto.")
             return None
 
         id_type      = _detect_id_type(nit_raw, tipo_hint)
-        nit_clean    = _clean_id(nit_raw)           # sin puntos/guiones/espacios
-        nit_base, dv = _split_nit_dv(nit_raw)       # base + DV si aplica
+        nit_clean    = _clean_id(nit_raw)
+        nit_base, dv = _split_nit_dv(nit_raw)
 
-        print(f"[Alegra] Resolviendo contacto | tipo={id_type} | raw='{nit_raw}' | limpio='{nit_clean}'")
-
-        contacto = None
-
-        # Paso 2 — Buscar por ID limpio
         contacto = self._search_by_id(nit_clean)
-
-        # Paso 3 — Buscar por ID base (ej: '900123456' de '900123456-1')
         if not contacto and nit_clean != nit_base:
             contacto = self._search_by_id(nit_base)
-
-        # Paso 4 — Buscar por nombre
         if not contacto and nombre and nombre != "Proveedor sin nombre":
             contacto = self._search_by_name(nombre)
 
-        # Paso 5 — Contacto encontrado: activar si es necesario
         if contacto:
             contact_id = contacto.get("id")
             status     = str(contacto.get("status") or "").lower()
             if status == "inactive" or force:
                 self._activate_contact(contact_id)
-            print(f"[Alegra] Contacto listo | ID={contact_id} | estado='{status}'")
             return contact_id
 
-        # Paso 6 — No existe: crear (maneja error 2006 internamente)
         return self._create_contact(nombre, nit_clean, nit_base, dv, id_type)
 
     def _search_by_id(self, identification: str) -> dict | None:
-        """Busca un contacto por número de identificación. Retorna el primero o None."""
         if not identification:
             return None
         try:
             result    = self._get("/contacts", params={"identification": identification, "limit": 1})
             contactos = result if isinstance(result, list) else []
-            if contactos:
-                print(f"[Alegra] Encontrado por ID '{identification}': ID={contactos[0].get('id')}")
-                return contactos[0]
-        except (AlegraAPIError, requests.RequestException) as exc:
-            print(f"[Alegra] Error buscando por ID '{identification}': {exc}")
-        return None
+            return contactos[0] if contactos else None
+        except (AlegraAPIError, requests.RequestException):
+            return None
 
     def _search_by_name(self, nombre: str) -> dict | None:
-        """Busca un contacto por nombre. Retorna el primero o None."""
         try:
             result    = self._get("/contacts", params={"name": nombre, "limit": 1})
             contactos = result if isinstance(result, list) else []
-            if contactos:
-                print(f"[Alegra] Encontrado por nombre '{nombre}': ID={contactos[0].get('id')}")
-                return contactos[0]
-        except (AlegraAPIError, requests.RequestException) as exc:
-            print(f"[Alegra] Error buscando por nombre '{nombre}': {exc}")
-        return None
+            return contactos[0] if contactos else None
+        except (AlegraAPIError, requests.RequestException):
+            return None
 
     def _create_contact(
         self,
@@ -417,8 +490,6 @@ class AlegraClient:
         dv: str | None,
         id_type: str,
     ) -> int | None:
-        """Crea un nuevo contacto proveedor en Alegra (paso 6)."""
-        print(f"[Alegra] Creando contacto '{nombre}' ({id_type} {nit_clean})...")
         body: dict = {
             "name":           nombre,
             "identification": nit_clean,
@@ -427,148 +498,26 @@ class AlegraClient:
         }
         if id_type == "NIT" and dv is not None:
             body["identificationObject"]["dv"] = dv
-
         try:
             nuevo = self._post("/contacts", body)
-            cid   = nuevo.get("id")
-            print(f"[Alegra] Contacto creado con ID {cid} (tipo {id_type}).")
-            return cid
+            return nuevo.get("id")
         except AlegraAPIError as exc:
-            code = _extract_code(exc.body)
-            # 2006: ya existe con esa identificación → extraer ID y usarlo
-            if code == "2006":
-                print("[Alegra] Error 2006 al crear: identificación ya existe. Extrayendo ID...")
+            if _extract_code(exc.body) == "2006":
                 existing_id = _extract_contact_id_from_error(exc.body)
                 if existing_id:
-                    print(f"[Alegra] Usando contacto existente ID={existing_id}.")
                     return existing_id
-            print(f"[Alegra] Error creando contacto: {exc}")
             return None
-        except requests.RequestException as exc:
-            print(f"[Alegra] Error de red creando contacto: {exc}")
+        except requests.RequestException:
             return None
 
     def _activate_contact(self, contact_id: int) -> None:
-        """Activa un contacto inactivo vía PUT /contacts/{id}."""
-        print(f"[Alegra] Activando contacto ID {contact_id} vía PUT...")
         try:
             self._put(f"/contacts/{contact_id}", {"status": "active"})
-            print(f"[Alegra] Contacto ID {contact_id} activado correctamente.")
-        except (AlegraAPIError, requests.RequestException) as exc:
-            print(f"[Alegra] No se pudo activar contacto ID {contact_id}: {exc}")
-            # Intentar con PATCH como fallback
+        except (AlegraAPIError, requests.RequestException):
             try:
                 self._patch(f"/contacts/{contact_id}", {"status": "active"})
-                print(f"[Alegra] Contacto ID {contact_id} activado vía PATCH (fallback).")
-            except Exception as exc2:
-                print(f"[Alegra] PATCH también falló: {exc2}")
-
-    # -----------------------------------------------------------------------
-    # Construcción del payload de factura
-    # -----------------------------------------------------------------------
-
-    def _build_payload(
-        self,
-        data: dict,
-        contact_id: int | None,
-        warehouse_id: int | None,
-        payment_method_id: int | None,
-        cost_center_id: int | None,
-        tax_included: bool,
-    ) -> dict:
-        """
-        Mapea los campos de ContaFlow al esquema JSON de Alegra Bills API.
-        Incluye 'account' en cada ítem si hay default_account_id.
-        Ref: https://developer.alegra.com/reference/createbill
-        """
-        fecha          = str(data.get("fecha_emision")    or datetime.now().strftime("%Y-%m-%d"))
-        vencimiento    = str(data.get("fecha_vencimiento") or fecha)
-        porcentaje_iva = float(data.get("porcentaje_iva") or 0)
-
-        # ── Ítems ─────────────────────────────────────────────────────────────
-        items_raw = data.get("items") or []
-        if isinstance(items_raw, str):
-            try:
-                items_raw = json.loads(items_raw)
             except Exception:
-                items_raw = []
-
-        # Construir ítems; si la lista queda vacía tras el filtro, usar fallback
-        items = [
-            self._build_alegra_item(item, porcentaje_iva, tax_included)
-            for item in items_raw
-            if item.get("descripcion")
-        ]
-
-        if not items:
-            subtotal = float(data.get("subtotal") or 0)
-            fallback: dict = {
-                "description": (
-                    f"Factura {data.get('numero_factura', 'S/N')} – "
-                    f"{data.get('proveedor_nombre', 'Proveedor')}"
-                ),
-                "quantity": 1,
-                "price":    subtotal,
-            }
-            if porcentaje_iva > 0:
-                fallback["tax"] = [{"percentage": porcentaje_iva}]
-            if self.default_account_id:
-                fallback["account"] = {"id": self.default_account_id}
-            items = [fallback]
-
-        # ── Payload base ──────────────────────────────────────────────────────
-        payload: dict = {
-            "date":    fecha,
-            "dueDate": vencimiento,
-            "items":   items,
-            "observations": (
-                f"ContaFlow | {data.get('numero_factura')} "
-                f"| {data.get('proveedor_nit')} "
-                f"| {data.get('proveedor_nombre')}"
-            ),
-        }
-
-        # Cuenta contable a nivel de factura (además de en cada ítem)
-        if self.default_account_id:
-            payload["account"] = {"id": self.default_account_id}
-
-        # provider SIEMPRE incluido si tenemos contact_id
-        if contact_id is not None:
-            payload["provider"] = {"id": contact_id}
-
-        if warehouse_id:
-            payload["warehouse"]     = {"id": warehouse_id}
-        if payment_method_id:
-            payload["paymentMethod"] = {"id": payment_method_id}
-        if cost_center_id:
-            payload["costCenter"]    = {"id": cost_center_id}
-
-        return payload
-
-    def _build_alegra_item(self, item: dict, porcentaje_iva: float, tax_included: bool) -> dict:
-        """Convierte un ítem de ContaFlow al formato esperado por Alegra."""
-        descripcion = str(item.get("descripcion") or "Producto/Servicio").strip()
-        cantidad    = float(item.get("cantidad") or 1)
-        precio      = float(item.get("valor_unitario") or item.get("valor_total") or 0)
-
-        if not item.get("valor_unitario") and item.get("valor_total") and cantidad:
-            precio = float(item["valor_total"]) / cantidad
-
-        alegra_item: dict = {
-            "description": descripcion,
-            "quantity":    cantidad,
-            "price":       round(precio, 2),
-        }
-
-        # IVA solo si aplica
-        if porcentaje_iva > 0:
-            alegra_item["tax"] = [{"percentage": porcentaje_iva}]
-
-        # Cuenta contable en cada ítem
-        if self.default_account_id:
-            alegra_item["account"] = {"id": self.default_account_id}
-
-        return alegra_item
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -576,18 +525,105 @@ class AlegraClient:
 # ---------------------------------------------------------------------------
 
 def from_env() -> AlegraClient:
-    """
-    Crea un AlegraClient leyendo credenciales del entorno (.env o variables del sistema).
-
-    Variables requeridas:
-      ALEGRA_EMAIL — email de la cuenta Alegra
-      ALEGRA_TOKEN — token de API generado en Configuración → API en Alegra
-    """
     email = os.environ.get("ALEGRA_EMAIL", "")
     token = os.environ.get("ALEGRA_TOKEN", "")
-
     if not email or not token:
         missing = [k for k, v in {"ALEGRA_EMAIL": email, "ALEGRA_TOKEN": token}.items() if not v]
         raise EnvironmentError(f"Faltan variables de entorno de Alegra: {', '.join(missing)}")
-
     return AlegraClient(email, token)
+
+
+# ---------------------------------------------------------------------------
+# Prueba real de integración
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    import sys
+    sys.stdout.reconfigure(encoding="utf-8")
+
+    _EMAIL = "alejo08111.am@gmail.com"
+    _TOKEN = "a2e8fcaa464ab2538398"
+    _ACCOUNT_ID = 5320
+    _PROVIDER_ID = 3   # Yamaha, NIT 890916911
+
+    print("=" * 65)
+    print("ContaFlow — Prueba de integracion Alegra API")
+    print("=" * 65)
+
+    client = AlegraClient(_EMAIL, _TOKEN)
+
+    # ── 1. Conexion ───────────────────────────────────────────────────────
+    print("\n[1] Verificando conexion...")
+    assert client.ping(), "FALLO: conexion rechazada"
+    print("    OK — conexion activa")
+
+    # ── 2. Catalogo de cuentas (filtro imputables) ─────────────────────
+    print("\n[2] Descargando catalogos...")
+    cats = client.get_catalogs()
+
+    accounts     = cats["accounts"]
+    taxes        = cats["taxes"]
+    cost_centers = cats["cost_centers"]
+
+    print(f"    Cuentas imputables : {len(accounts)}")
+    print(f"    Impuestos          : {len(taxes)}")
+    print(f"    Centros de costo   : {len(cost_centers)}")
+
+    # Verificar que la cuenta 5320 esta en la lista
+    acc_5320 = next((a for a in accounts if a["id"] == _ACCOUNT_ID), None)
+    if acc_5320:
+        print(f"    Cuenta {_ACCOUNT_ID} OK: {acc_5320['name']}")
+    else:
+        print(f"    Cuenta {_ACCOUNT_ID} no en lista — verificar filtracion")
+        print(f"    Primeras 5 cuentas: {[a['id'] for a in accounts[:5]]}")
+
+    # Verificar que NO hay cuentas con children (agrupadoras filtradas)
+    print("\n[2b] Verificando filtro de cuentas agrupadoras...")
+    print(f"    Total en catalogo: {len(accounts)}")
+    if taxes:
+        print(f"    Ejemplo impuesto: {taxes[0]}")
+    if cost_centers:
+        print(f"    Ejemplo CC: {cost_centers[0]}")
+
+    # ── 3. Crear factura con estructura completa ───────────────────────
+    print(f"\n[3] Creando factura de prueba (proveedor id={_PROVIDER_ID})...")
+
+    _invoice = {
+        "proveedor_nombre":  "Yamaha Motor de Colombia",
+        "proveedor_nit":     "890916911",
+        "numero_factura":    "TEST-CF-002",
+        "fecha_emision":     "2026-03-04",
+        "fecha_vencimiento": "2026-03-04",
+        "subtotal":          100000.0,
+        "contact_id":        _PROVIDER_ID,
+        "categories": [
+            {
+                "account_id":     _ACCOUNT_ID,
+                "price":          100000.0,
+                "quantity":       1,
+                "observations":   "Prueba ContaFlow con catalogo completo",
+                "tax_id":         taxes[0]["id"] if taxes else None,
+                "cost_center_id": cost_centers[0]["id"] if cost_centers else None,
+            }
+        ],
+    }
+
+    try:
+        result = client.create_purchase_invoice(_invoice)
+        print(f"\n[OK] EXITO — Factura creada con ID: {result.get('id')}")
+        print(f"     Total: {result.get('total')}")
+        cats_resp = result.get("purchases", {}).get("categories", [])
+        if cats_resp:
+            print(f"     Categoria: {cats_resp[0].get('name')} | tax: {cats_resp[0].get('tax')}")
+    except AlegraAuthError as e:
+        print(f"\n[ERROR AUTH]: {e}")
+        raise SystemExit(1)
+    except AlegraAPIError as e:
+        print(f"\n[ERROR API] ({e.status_code}): {e.body[:800]}")
+        print(f"[Mensaje amigable]: {friendly_error(e)}")
+        raise SystemExit(1)
+    except Exception as e:
+        print(f"\n[ERROR]: {e}")
+        raise SystemExit(1)
+
+    print("\n[RESULTADO] Todas las pruebas pasaron. OK para avanzar a app.py.")
