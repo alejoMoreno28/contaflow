@@ -280,36 +280,108 @@ if "authenticated" not in st.session_state:
 
 if not st.session_state.authenticated:
     st.markdown("""
-    <div style="max-width:420px;margin:80px auto 0;padding:40px 36px;
-                background:#fff;border:1.5px solid #E2E8F0;border-radius:20px;
-                box-shadow:0 8px 40px rgba(0,102,255,0.10);">
-        <div style="text-align:center;margin-bottom:32px;">
-            <div style="display:inline-flex;align-items:center;justify-content:center;
-                        width:56px;height:56px;background:linear-gradient(135deg,#0066FF,#0052CC);
-                        border-radius:16px;box-shadow:0 4px 16px rgba(0,102,255,0.3);margin-bottom:16px;">
-                <span style="font-size:28px;">⚡</span>
-            </div>
-            <div style="font-size:1.75rem;font-weight:800;color:#0F172A;letter-spacing:-0.04em;">
-                Conta<span style="color:#0066FF;">Flow</span>
-            </div>
-            <div style="font-size:0.875rem;color:#94A3B8;font-weight:500;margin-top:4px;">
-                Plataforma de facturación electrónica
-            </div>
-        </div>
-    </div>
+    <style>
+    html, body,
+    [data-testid="stAppViewContainer"],
+    [data-testid="stBaseViewContainer"] {
+        background: #1a1a2e !important;
+    }
+    [data-testid="stMainBlockContainer"] {
+        background: transparent !important;
+        max-width: 100% !important;
+        padding: 0 16px !important;
+    }
+    [data-testid="stSidebar"]  { display: none !important; }
+    [data-testid="stHeader"]   { background: transparent !important; }
+    [data-testid="stAppViewContainer"]::before { display: none !important; }
+
+    /* Card — middle column */
+    div[data-testid="stHorizontalBlock"] > div:nth-child(2) > div[data-testid="stVerticalBlockBorderWrapper"] > div,
+    div[data-testid="stHorizontalBlock"] > div:nth-child(2) > div[data-testid="stVerticalBlock"] {
+        background: #ffffff !important;
+        border-radius: 20px !important;
+        padding: 48px 40px !important;
+        box-shadow: 0 24px 80px rgba(0,0,0,0.35) !important;
+        margin-top: 60px !important;
+    }
+
+    /* Center logo image */
+    div[data-testid="stHorizontalBlock"] > div:nth-child(2) [data-testid="stImage"] {
+        display: flex !important;
+        justify-content: center !important;
+    }
+
+    /* Inputs */
+    div[data-testid="stHorizontalBlock"] > div:nth-child(2) [data-testid="stTextInput"] input {
+        border: 1.5px solid #E2E8F0 !important;
+        border-radius: 10px !important;
+        background: #F8FAFF !important;
+        padding: 12px 14px !important;
+        font-size: 0.9375rem !important;
+        color: #0F172A !important;
+    }
+    div[data-testid="stHorizontalBlock"] > div:nth-child(2) [data-testid="stTextInput"] input:focus {
+        border-color: #0066FF !important;
+        box-shadow: 0 0 0 3px rgba(0,102,255,0.15) !important;
+        background: #fff !important;
+    }
+
+    /* Submit button */
+    div[data-testid="stHorizontalBlock"] > div:nth-child(2) [data-testid="stForm"] button {
+        background: #0066FF !important;
+        background-image: none !important;
+        color: #fff !important;
+        border: none !important;
+        border-radius: 10px !important;
+        padding: 14px !important;
+        font-size: 1rem !important;
+        font-weight: 700 !important;
+        box-shadow: 0 4px 16px rgba(0,102,255,0.30) !important;
+        transform: none !important;
+        letter-spacing: 0 !important;
+        margin-top: 8px !important;
+    }
+    div[data-testid="stHorizontalBlock"] > div:nth-child(2) [data-testid="stForm"] button:hover {
+        background: #0052CC !important;
+        box-shadow: 0 6px 24px rgba(0,102,255,0.40) !important;
+        transform: translateY(-1px) !important;
+    }
+    </style>
     """, unsafe_allow_html=True)
 
-    with st.form("login_form"):
-        email = st.text_input("Correo electrónico", placeholder="usuario@empresa.co")
-        password = st.text_input("Contraseña", type="password", placeholder="••••••••")
-        submitted = st.form_submit_button("Ingresar", use_container_width=True, type="primary")
-
-    if submitted:
-        if email == _VALID_EMAIL and password == _VALID_PASSWORD:
-            st.session_state.authenticated = True
-            st.rerun()
+    _, _mid, _ = st.columns([1, 1.5, 1])
+    with _mid:
+        _logo = Path(__file__).parent / "logo.png"
+        if _logo.exists():
+            st.image(str(_logo), width=120)
         else:
-            st.error("Credenciales incorrectas")
+            st.markdown(
+                '<div style="text-align:center;font-size:3rem;margin-bottom:4px;">⚡</div>',
+                unsafe_allow_html=True,
+            )
+
+        st.markdown("""
+        <div style="text-align:center;margin:14px 0 28px;">
+            <div style="font-size:1.5rem;font-weight:800;color:#0066FF;letter-spacing:-0.03em;">
+                Bienvenido a ContaFlow
+            </div>
+            <div style="font-size:0.875rem;color:#64748B;margin-top:6px;">
+                Ingresa tus credenciales para continuar
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        with st.form("login_form"):
+            _email    = st.text_input("Correo electrónico", placeholder="usuario@empresa.co")
+            _password = st.text_input("Contraseña", type="password", placeholder="••••••••")
+            _submitted = st.form_submit_button("Entrar", use_container_width=True, type="primary")
+
+        if _submitted:
+            if _email == _VALID_EMAIL and _password == _VALID_PASSWORD:
+                st.session_state.authenticated = True
+                st.rerun()
+            else:
+                st.error("Credenciales incorrectas")
 
     st.stop()
 
