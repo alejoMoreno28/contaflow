@@ -25,6 +25,7 @@ _PURCHASE_PREFIXES = ("14", "15", "5", "6")
 # ---------------------------------------------------------------------------
 
 def _get_puc_code(account: dict) -> str:
+    """Extrae el código PUC del campo 'code'."""
     return str(account.get("code", "")).strip()
 
 
