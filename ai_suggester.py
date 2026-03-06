@@ -24,17 +24,25 @@ _PURCHASE_PREFIXES = ("14", "15", "5", "6")
 # Helpers de filtrado
 # ---------------------------------------------------------------------------
 
+def _get_puc_code(account: dict) -> str:
+    """Extrae el código PUC del campo 'name'. Ej: '143005 — Productos...' → '143005'"""
+    name = str(account.get("name", "")).strip()
+    if not name:
+        return ""
+    return name.split('\u2014')[0].strip().split()[0]
+
+
 def _filter_by_class(accounts: list[dict]) -> list[dict]:
     """
-    Retiene SOLO cuentas cuyo código PUC (campo 'code') empiece por
-    14, 15, 5 o 6. Descarta 11-13, 2, 3, 4, etc.
-    Fallback: si queda vacío, devuelve todo para no romper la UI.
+    Retiene SOLO cuentas cuyo código PUC empiece por 14, 15, 5 o 6.
+    El código PUC está al inicio del campo 'name': "143005 — Productos..."
     """
-    filtered = [
-        a for a in accounts
-        if any(str(a.get("code", "")).startswith(p) for p in _PURCHASE_PREFIXES)
-    ]
-    return filtered if filtered else accounts
+    filtered = []
+    for a in accounts:
+        code = _get_puc_code(a)
+        if any(code.startswith(p) for p in _PURCHASE_PREFIXES):
+            filtered.append(a)
+    return filtered
 
 
 def _filter_by_keywords(accounts: list[dict], description: str, max_accounts: int = 50) -> list[dict]:
@@ -52,14 +60,14 @@ def _filter_by_keywords(accounts: list[dict], description: str, max_accounts: in
 
     scored.sort(key=lambda x: x[0], reverse=True)
     filtered = [acc for _, acc in scored[:max_accounts]]
-    # Si ninguna coincide, devolver las primeras N del catálogo de clase
     return filtered if filtered else accounts[:max_accounts]
 
 
 def _first_expense_account(accounts: list[dict]) -> int | None:
     """Plan B: primera cuenta clase 5 (gastos) del catálogo filtrado."""
     for a in accounts:
-        if str(a.get("code", "")).startswith("5"):
+        code = _get_puc_code(a)
+        if code.startswith("5"):
             return a["id"]
     return None
 
@@ -80,7 +88,7 @@ def suggest_account_for_item(
     Parámetros:
     - item_description: descripción del ítem
     - provider_name: nombre del proveedor
-    - alegra_accounts: lista [{id, name, code}, ...] ya filtrada por _filter_imputable
+    - alegra_accounts: lista [{id, name}, ...] ya filtrada por _filter_imputable
     - alegra_taxes: lista [{id, name, percentage}, ...] del catálogo de Alegra
 
     Retorna: {"account_id": int|None, "tax_id": int|None}
@@ -95,18 +103,16 @@ def suggest_account_for_item(
     class_filtered = _filter_by_class(alegra_accounts)
     final_filtered = _filter_by_keywords(class_filtered, item_description, max_accounts=50)
 
-    # IDs válidos (internos de Alegra) para validar la respuesta de Haiku
+    # IDs válidos para validar la respuesta de Haiku
     valid_account_ids = {a["id"] for a in final_filtered}
 
     # ── Construir catálogo para el prompt ──────────────────────────────────
-    # Formato explícito: lista de objetos con campo "id" bien identificado
-    # para que Haiku devuelva el campo "id", no el código PUC.
     catalog_list = [
-        {"id": a["id"], "puc": a["code"], "nombre": a["name"]}
+        {"id": a["id"], "puc": _get_puc_code(a), "nombre": a["name"]}
         for a in final_filtered
     ]
 
-    # Impuestos disponibles (simplificados)
+    # Impuestos disponibles
     taxes_list = [
         {"id": t["id"], "nombre": t["name"], "pct": t.get("percentage", 0)}
         for t in (alegra_taxes or [])
@@ -144,29 +150,28 @@ def suggest_account_for_item(
         if not json_match:
             raise ValueError("No JSON found")
 
-        result    = _json.loads(json_match.group())
-        acct_raw  = result.get("account_id")
-        tax_raw   = result.get("tax_id")
+        result   = _json.loads(json_match.group())
+        acct_raw = result.get("account_id")
+        tax_raw  = result.get("tax_id")
 
         account_id = int(acct_raw) if acct_raw is not None else None
         tax_id     = int(tax_raw)  if tax_raw  is not None else None
 
-        # Validar que el account_id existe en el catálogo filtrado
+        # Validar account_id
         if account_id not in valid_account_ids:
             account_id = None
 
-        # Validar que el tax_id existe en los impuestos disponibles
+        # Validar tax_id
         valid_tax_ids = {t["id"] for t in (alegra_taxes or [])}
         if tax_id not in valid_tax_ids:
             tax_id = None
 
-        # Plan B: si account_id sigue nulo, usar primera cuenta de clase 5
+        # Plan B: primera cuenta clase 5
         if account_id is None:
             account_id = _first_expense_account(class_filtered)
 
         return {"account_id": account_id, "tax_id": tax_id}
 
     except Exception:
-        # Plan B total: primera cuenta clase 5
         fallback_id = _first_expense_account(class_filtered)
         return {"account_id": fallback_id, "tax_id": None}
