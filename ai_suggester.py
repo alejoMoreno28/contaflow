@@ -25,11 +25,7 @@ _PURCHASE_PREFIXES = ("14", "15", "5", "6")
 # ---------------------------------------------------------------------------
 
 def _get_puc_code(account: dict) -> str:
-    """Extrae el código PUC del campo 'name'. Ej: '143005 — Productos...' → '143005'"""
-    name = str(account.get("name", "")).strip()
-    if not name:
-        return ""
-    return name.split('\u2014')[0].strip().split()[0]
+    return str(account.get("code", "")).strip()
 
 
 def _filter_by_class(accounts: list[dict]) -> list[dict]:
