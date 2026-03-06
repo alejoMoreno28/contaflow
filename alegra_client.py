@@ -121,15 +121,23 @@ def friendly_error(exc: "AlegraAPIError") -> str:
     """Convierte un AlegraAPIError en un mensaje amigable para mostrar al usuario."""
     code = _extract_code(exc.body)
     if code and code in _ERROR_MESSAGES:
-        return _ERROR_MESSAGES[code]
-    # Intentar extraer el mensaje de la respuesta
+        base = _ERROR_MESSAGES[code]
+    else:
+        try:
+            msg = json.loads(exc.body).get("message", "")
+            base = f"Alegra rechazó la factura: {msg}" if msg else f"Error {exc.status_code} de Alegra. Verifica los parámetros de la factura."
+        except Exception:
+            base = f"Error {exc.status_code} de Alegra. Verifica los parámetros de la factura."
+
+    # Incluir los account_ids enviados si están disponibles
     try:
-        msg = json.loads(exc.body).get("message", "")
-        if msg:
-            return f"Alegra rechazó la factura: {msg}"
+        account_ids = json.loads(exc.body).get("_account_ids_sent")
+        if account_ids:
+            base += f" · IDs de cuenta enviados: {account_ids}"
     except Exception:
         pass
-    return f"Error {exc.status_code} de Alegra. Verifica los parámetros de la factura."
+
+    return base
 
 
 # ---------------------------------------------------------------------------
@@ -291,18 +299,25 @@ class AlegraClient:
 
         return catalogs
 
+    # Clases PUC válidas para ítems de facturas de compra (bills).
+    # Alegra rechaza cuentas de clase 1 (activos), 2 (pasivos), 3 (patrimonio)
+    # y 4 (ingresos) en purchases.categories — solo acepta gastos/costos/otros.
+    _VALID_BILL_CODE_PREFIXES = ("5", "6", "7", "8", "9")
+
     def _filter_imputable(self, accounts: list) -> list:
         """
-        Filtra el árbol de cuentas devolviendo SOLO hojas transaccionales.
+        Filtra el árbol de cuentas devolviendo SOLO hojas transaccionales
+        válidas para facturas de compra (bills) en Alegra.
 
-        Regla exacta (basada en esquema JSON real de Alegra):
+        Reglas:
           - use == "accumulative" → cuenta agrupadora. Recursear hijos; nunca incluir.
-          - use == "movement" + children vacío → cuenta hoja imputable. Incluir.
-          - use == "movement" + children no vacío → nodo intermedio. Recursear hijos;
-            no incluir este nodo (las hojas más específicas son las correctas).
+          - use == "movement" + children vacío → hoja imputable. Incluir si pasa
+            el filtro de clase PUC (prefijos 5-9: gastos, costos, otros).
+          - use == "movement" + children no vacío → nodo intermedio. Recursear.
 
-        Esto evita el error 11038 y excluye cuentas como "1455 - Materiales"
-        que tienen use="accumulative" pero children vacío (sin subcuentas creadas).
+        Se excluyen cuentas de clase 1 (activos), 2 (pasivos), 3 (patrimonio) y
+        4 (ingresos) porque Alegra las rechaza en purchases.categories con el
+        error "Una de las cuentas contables especificada es inválida".
         """
         result: list[dict] = []
         for acc in accounts:
@@ -312,19 +327,25 @@ class AlegraClient:
             use      = acc.get("use", "")
 
             if children:
-                # Nodo con hijos: recursear siempre, no incluir este nodo
                 result.extend(self._filter_imputable(children))
             else:
-                # Hoja: solo incluir si es transaccional (use == "movement")
                 if use == "movement":
+                    code = str(acc.get("code") or acc["id"])
+                    # Excluir cuentas de clase 1-4 (inválidas para bills)
+                    if not code.startswith(self._VALID_BILL_CODE_PREFIXES):
+                        continue
+                    # Excluir códigos de 4 dígitos o menos: en PUC colombiano
+                    # son cuentas agrupadas (grupo/cuenta), no auxiliares imputables.
+                    if code.isdigit() and len(code) <= 4:
+                        continue
                     result.append({
                         "id":   int(acc["id"]),
                         "name": acc.get("name", str(acc["id"])),
-                        "code": str(acc.get("code") or acc["id"]),
+                        "code": code,
                     })
 
-        # Fallback: si el filtro dejó vacío (e.g. árbol todo accumulative sin hojas),
-        # incluir todas las hojas sin importar use para no romper la UI.
+        # Fallback: si el filtro dejó vacío, incluir hojas de clase 5-9 sin importar use.
+        # Se aplican los mismos checks de prefijo y longitud que el filtro principal.
         if not result and accounts:
             result = [
                 {
@@ -332,7 +353,11 @@ class AlegraClient:
                     "name": a.get("name", str(a["id"])),
                     "code": str(a.get("code") or a["id"]),
                 }
-                for a in accounts if a.get("id") and not (a.get("children") or [])
+                for a in accounts
+                if a.get("id")
+                and not (a.get("children") or [])
+                and str(a.get("code") or a["id"]).startswith(self._VALID_BILL_CODE_PREFIXES)
+                and not (str(a.get("code") or a["id"]).isdigit() and len(str(a.get("code") or a["id"])) <= 4)
             ]
 
         return result
@@ -427,7 +452,18 @@ class AlegraClient:
         if contact_id is not None:
             payload["provider"] = {"id": contact_id}
 
-        return self._post("/bills", payload)
+        try:
+            return self._post("/bills", payload)
+        except AlegraAPIError as exc:
+            # Enriquecer el error con los account_ids enviados para diagnóstico
+            account_ids = [c["id"] for c in categories]
+            try:
+                body_data = json.loads(exc.body)
+                body_data["_account_ids_sent"] = account_ids
+                enriched_body = json.dumps(body_data)
+            except Exception:
+                enriched_body = exc.body
+            raise AlegraAPIError(exc.status_code, enriched_body) from exc
 
     # -----------------------------------------------------------------------
     # Resolución de contacto (get_or_create_provider)
