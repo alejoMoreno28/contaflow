@@ -53,13 +53,12 @@ def _build_header_row(ws):
 
 def _autofit_columns(ws):
     """Ajusta el ancho de cada columna al contenido mas largo."""
-    for col_idx in range(1, len(CAMPOS_CSV) + 1):
-        col_letter = get_column_letter(col_idx)
-        max_len = max(
-            len(str(ws.cell(row=r, column=col_idx).value or ""))
-            for r in range(1, ws.max_row + 1)
-        )
-        ws.column_dimensions[col_letter].width = min(max_len + 4, 45)
+    col_widths = [0] * len(CAMPOS_CSV)
+    for row in ws.iter_rows(max_col=len(CAMPOS_CSV)):
+        for col_idx, cell in enumerate(row):
+            col_widths[col_idx] = max(col_widths[col_idx], len(str(cell.value or "")))
+    for col_idx, width in enumerate(col_widths, start=1):
+        ws.column_dimensions[get_column_letter(col_idx)].width = min(width + 4, 45)
 
 
 def create_workbook() -> openpyxl.Workbook:

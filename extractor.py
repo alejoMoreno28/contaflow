@@ -151,12 +151,17 @@ def extract_invoice_data(pdf_text: str) -> dict:
 
     raw = message.content[0].text.strip()
 
-    # Tolerancia: si Claude envuelve el JSON en ```json ... ```
-    if raw.startswith("```"):
-        raw = "\n".join(raw.split("\n")[1:])
-        raw = raw.rstrip("`").strip()
+    # Tolerancia: remover bloques markdown ```json ... ``` con regex
+    raw = re.sub(r"^```(?:json)?\s*\n?", "", raw)
+    raw = re.sub(r"\n?```\s*$", "", raw).strip()
 
-    data = json.loads(raw)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise ValueError(
+            f"Claude devolvió una respuesta que no es JSON válido: {e}\n"
+            f"Respuesta recibida: {raw[:300]}"
+        )
 
     # Limpiar descripciones basura en los ítems
     if "items" in data and isinstance(data["items"], list):
@@ -232,11 +237,17 @@ def extract_invoice_image(image_path: str) -> dict:
 
     raw = message.content[0].text.strip()
 
-    if raw.startswith("```"):
-        raw = "\n".join(raw.split("\n")[1:])
-        raw = raw.rstrip("`").strip()
+    # Tolerancia: remover bloques markdown ```json ... ``` con regex
+    raw = re.sub(r"^```(?:json)?\s*\n?", "", raw)
+    raw = re.sub(r"\n?```\s*$", "", raw).strip()
 
-    data = json.loads(raw)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise ValueError(
+            f"Claude devolvió una respuesta que no es JSON válido: {e}\n"
+            f"Respuesta recibida: {raw[:300]}"
+        )
 
     if "items" in data and isinstance(data["items"], list):
         data["items"] = clean_items(data["items"])

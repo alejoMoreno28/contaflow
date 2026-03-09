@@ -140,14 +140,17 @@ def suggest_account_for_item(
         raw = message.content[0].text.strip()
 
         # Limpiar posibles bloques markdown
-        raw = re.sub(r"```(?:json)?\s*", "", raw).strip("`").strip()
+        raw = re.sub(r"^```(?:json)?\s*\n?", "", raw)
+        raw = re.sub(r"\n?```\s*$", "", raw).strip()
 
-        # Extraer primer objeto JSON de la respuesta
-        json_match = re.search(r"\{[^}]+\}", raw)
-        if not json_match:
-            raise ValueError("No JSON found")
-
-        result   = _json.loads(json_match.group())
+        # Intentar parseo directo; si falla, extraer primer bloque JSON (soporta anidados)
+        try:
+            result = _json.loads(raw)
+        except _json.JSONDecodeError:
+            json_match = re.search(r"\{.*\}", raw, re.DOTALL)
+            if not json_match:
+                raise ValueError("No JSON found")
+            result = _json.loads(json_match.group())
         acct_raw = result.get("account_id")
         tax_raw  = result.get("tax_id")
 

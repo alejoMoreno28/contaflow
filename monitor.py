@@ -96,7 +96,7 @@ def _process_new_pdfs(service, folder_id: str, processed_ids: set) -> list[dict]
                 data = process_pdf(local_pdf)
                 data["_archivo_fuente"] = name  # nombre original de Drive
 
-                total = data.get("total_factura")
+                total = data.get("total_a_pagar") or data.get("total_factura")
                 total_str = f"${total:,.0f}" if isinstance(total, (int, float)) else str(total or "N/A")
                 print(f"    [OK] Factura {data.get('numero_factura', 'N/A')} | Total: {total_str}")
 

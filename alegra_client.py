@@ -10,6 +10,7 @@ Ref: https://developer.alegra.com/reference
 import json
 import os
 import re
+import sys
 import requests
 from base64 import b64encode
 from datetime import datetime
@@ -271,8 +272,8 @@ class AlegraClient:
                 }
                 for t in tax_list if t.get("id")
             ]
-        except (AlegraAPIError, Exception):
-            pass
+        except Exception as _tax_exc:
+            print(f"[ContaFlow] Warning: no se pudieron cargar impuestos: {_tax_exc}", file=sys.stderr)
 
         # ── Centros de costo ──────────────────────────────────────────────
         for cc_endpoint in ("/cost-centers", "/costCenters"):
@@ -577,8 +578,8 @@ if __name__ == "__main__":
     import sys
     sys.stdout.reconfigure(encoding="utf-8")
 
-    _EMAIL = "alejo08111.am@gmail.com"
-    _TOKEN = "a2e8fcaa464ab2538398"
+    _EMAIL = os.environ.get("ALEGRA_EMAIL", "")
+    _TOKEN = os.environ.get("ALEGRA_TOKEN", "")
     _ACCOUNT_ID = 5320
     _PROVIDER_ID = 3   # Yamaha, NIT 890916911
 

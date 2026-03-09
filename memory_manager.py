@@ -25,7 +25,10 @@ import json
 import os
 import re
 
+import filelock
+
 _MEMORY_PATH = os.path.join(os.path.dirname(__file__), "supplier_memory.json")
+_LOCK        = filelock.FileLock(_MEMORY_PATH + ".lock", timeout=10)
 
 
 # ---------------------------------------------------------------------------
@@ -40,19 +43,21 @@ def normalize_item_key(description: str) -> str:
 
 
 def _load() -> dict:
-    if os.path.exists(_MEMORY_PATH):
-        try:
-            with open(_MEMORY_PATH, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return data if isinstance(data, dict) else {}
-        except (json.JSONDecodeError, OSError):
-            return {}
-    return {}
+    with _LOCK:
+        if os.path.exists(_MEMORY_PATH):
+            try:
+                with open(_MEMORY_PATH, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    return data if isinstance(data, dict) else {}
+            except (json.JSONDecodeError, OSError):
+                return {}
+        return {}
 
 
 def _save(memory: dict) -> None:
-    with open(_MEMORY_PATH, "w", encoding="utf-8") as f:
-        json.dump(memory, f, ensure_ascii=False, indent=2)
+    with _LOCK:
+        with open(_MEMORY_PATH, "w", encoding="utf-8") as f:
+            json.dump(memory, f, ensure_ascii=False, indent=2)
 
 
 # ---------------------------------------------------------------------------

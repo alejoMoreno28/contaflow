@@ -39,8 +39,8 @@ except ImportError:
 # AUTENTICACIÓN
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-_VALID_EMAIL    = "demo@contaflow.co"
-_VALID_PASSWORD = "ContaFlow2024"
+_VALID_EMAIL    = os.getenv("APP_DEMO_EMAIL",    "demo@contaflow.co")
+_VALID_PASSWORD = os.getenv("APP_DEMO_PASSWORD", "ContaFlow2024")
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # PAGE CONFIG
