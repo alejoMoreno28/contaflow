@@ -24,7 +24,7 @@ from extractor import process_pdf, process_image, IMAGE_MEDIA_TYPES
 
 try:
     from alegra_client import AlegraClient, AlegraAuthError, AlegraAPIError, friendly_error
-    from memory_manager import get_item_memory, save_invoice_memory, normalize_item_key
+    from memory_manager import get_item_memory, save_invoice_memory, normalize_item_key, save_account_memory
     _ALEGRA_OK = True
 except ImportError:
     _ALEGRA_OK = False
@@ -1107,6 +1107,18 @@ elif st.session_state.wizard_step == 2:
                 # Guardar memoria por NIT+ítem si hay cuenta asignada
                 if _ALEGRA_OK and _nit_e and any(it.get("cuenta_id") for it in _items_detalle):
                     save_invoice_memory(_nit_e, _items_detalle)
+
+                # Guardar memoria por proveedor+keyword para sugerencias futuras
+                _prov_nombre = _edit.get("proveedor", "")
+                if _ALEGRA_OK and _prov_nombre:
+                    for _it in _items_detalle:
+                        if _it.get("cuenta_id"):
+                            save_account_memory(
+                                _prov_nombre,
+                                _it.get("descripcion", ""),
+                                _it.get("cuenta_id"),
+                                _it.get("impuesto_id"),
+                            )
 
                 # Entrada reviewed
                 _reviewed.append({

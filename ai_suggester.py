@@ -16,6 +16,11 @@ import re
 
 import anthropic
 
+try:
+    from memory_manager import get_account_memory as _get_account_memory
+except ImportError:
+    _get_account_memory = None  # type: ignore[assignment]
+
 # Prefijos PUC admitidos para facturas de compra
 _PURCHASE_PREFIXES = ("14", "15", "5", "6")
 
@@ -91,6 +96,12 @@ def suggest_account_for_item(
     Retorna: {"account_id": int|None, "tax_id": int|None}
     """
     _empty = {"account_id": None, "tax_id": None}
+
+    # ── Consultar memoria antes de llamar a Haiku ──────────────────────────
+    if _get_account_memory is not None and provider_name and item_description.strip():
+        _mem = _get_account_memory(provider_name, item_description)
+        if _mem is not None:
+            return _mem
 
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key or not alegra_accounts or not item_description.strip():

@@ -183,3 +183,84 @@ def forget_nit(nit: str) -> None:
     if nit in memory:
         del memory[nit]
         _save(memory)
+
+
+# ---------------------------------------------------------------------------
+# Memoria por nombre de proveedor + keyword de ítem
+# ---------------------------------------------------------------------------
+
+_STOPWORDS = {"el", "la", "los", "las", "un", "una", "de", "del"}
+
+
+def _normalize_provider(provider_name: str) -> str:
+    return provider_name.strip().upper()
+
+
+def _normalize_keyword(item_keyword: str) -> str:
+    """Primera palabra significativa (minúsculas), ignorando stopwords."""
+    words = item_keyword.strip().lower().split()
+    for w in words:
+        clean = re.sub(r"[^a-záéíóúña-z0-9]", "", w)
+        if clean and clean not in _STOPWORDS:
+            return clean
+    return words[0] if words else ""
+
+
+def save_account_memory(
+    provider_name: str,
+    item_keyword: str,
+    account_id: int | None,
+    tax_id: int | None,
+) -> None:
+    """
+    Guarda account_id y tax_id para un proveedor + keyword de ítem.
+    Clave: memory[PROVIDER_NAME_UPPER][primera_palabra_significativa]
+    """
+    if not provider_name or not item_keyword:
+        return
+    prov = _normalize_provider(provider_name)
+    kw   = _normalize_keyword(item_keyword)
+    if not kw:
+        return
+    memory = _load()
+    memory.setdefault(prov, {})[kw] = {
+        "account_id": int(account_id) if account_id is not None else None,
+        "tax_id":     int(tax_id)     if tax_id     is not None else None,
+    }
+    _save(memory)
+
+
+def get_account_memory(
+    provider_name: str,
+    item_keyword: str,
+) -> dict | None:
+    """
+    Busca account_id y tax_id para un proveedor + descripción de ítem.
+    1. Coincidencia exacta por keyword normalizada.
+    2. Si no hay: cualquier keyword guardada que aparezca como substring
+       en item_keyword (normalizado a minúsculas).
+    Retorna {"account_id": int|None, "tax_id": int|None} o None.
+    """
+    if not provider_name or not item_keyword:
+        return None
+    prov = _normalize_provider(provider_name)
+    kw   = _normalize_keyword(item_keyword)
+    if not kw:
+        return None
+
+    memory   = _load()
+    prov_mem = memory.get(prov, {})
+    if not prov_mem:
+        return None
+
+    # 1. Coincidencia exacta
+    if kw in prov_mem:
+        return prov_mem[kw]
+
+    # 2. Substring: alguna keyword guardada aparece en la descripción completa
+    item_lower = item_keyword.strip().lower()
+    for stored_kw, val in prov_mem.items():
+        if stored_kw in item_lower:
+            return val
+
+    return None
