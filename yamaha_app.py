@@ -84,6 +84,31 @@ st.set_page_config(
     layout="wide",
 )
 
+st.markdown("""
+<style>
+  /* Yamaha red accent */
+  .stButton > button[kind="primary"] {
+      background-color: #B71C1C !important;
+      color: white !important;
+      border: none !important;
+  }
+  .btn-green > button {
+      background-color: #2E7D32 !important;
+      color: white !important;
+      border: none !important;
+      width: 100% !important;
+      font-size: 1.1rem !important;
+      padding: 0.6rem !important;
+  }
+  .ref-row {
+      background: #F5F5F5;
+      border-radius: 6px;
+      padding: 0.5rem;
+      margin-bottom: 0.3rem;
+  }
+</style>
+""", unsafe_allow_html=True)
+
 # ─── PASO 1: CARGAR EXCEL AL INICIO ───────────────────────────────────────────
 
 def _parse_wb(wb) -> tuple[dict, dict]:
@@ -203,14 +228,12 @@ with st.sidebar:
     st.markdown("## 🏍️ ContaFlow Yamaha")
     st.divider()
     if _fuente == "onedrive":
-        st.success(f"✅ Referencias actualizadas desde OneDrive ({len(invenarios):,} refs)")
+        st.success(f"✅ Catálogo Google Sheets")
+        st.caption(f"{len(invenarios):,} referencias cargadas")
     else:
-        st.warning(f"⚠️ Usando base local (sin conexión) — {len(invenarios):,} refs")
-    st.success(f"✅ {len(datos_tiendas)} tiendas configuradas")
-    if st.button("🔄 Actualizar referencias"):
-        for _k in ("invenarios", "datos_tiendas", "excel_fuente"):
-            st.session_state.pop(_k, None)
-        st.rerun()
+        st.warning(f"⚠️ Base local (sin conexión)")
+        st.caption(f"{len(invenarios):,} referencias")
+    st.caption(f"{len(datos_tiendas)} tiendas configuradas")
     st.divider()
     if not os.environ.get("ANTHROPIC_API_KEY"):
         st.error("⚠️ ANTHROPIC_API_KEY no configurada")
@@ -222,7 +245,17 @@ with st.sidebar:
 st.title("ContaFlow Yamaha — Cargue Facturas CPFE")
 st.caption("Genera archivos .PRN para Siigo desde facturas de Incolmotos")
 
+col_refresh, col_spacer = st.columns([1, 5])
+with col_refresh:
+    if st.button("🔄 Actualizar catálogo", type="secondary"):
+        for k in ["invenarios", "excel_fuente"]:
+            st.session_state.pop(k, None)
+        st.rerun()
+
 # ─── PASO 2: SUBIR FACTURAS ───────────────────────────────────────────────────
+
+st.markdown("### 📄 Cargar facturas CPFE")
+st.caption("Sube uno o varios archivos PDF de facturas Incolmotos Yamaha (máx. 200 MB por archivo)")
 
 uploaded_files = st.file_uploader(
     "Sube las facturas CPFE (PDF)",
@@ -356,7 +389,8 @@ if refs_faltantes:
     codigos = list(dict.fromkeys(r["Referencia"] for r in refs_faltantes))
     st.info("📋 Referencias nuevas detectadas: " + ", ".join(codigos))
 
-    st.markdown("### Registrar referencias nuevas")
+    st.markdown("## ⚠️ Referencias nuevas — acción requerida")
+    st.caption("Estas referencias no están en el catálogo. Asigna un código de producto Siigo a cada una para continuar.")
     st.markdown(
         "Ingresa el **código de producto Siigo** para cada referencia. "
         "La cuenta contable se calcula automáticamente."
@@ -390,7 +424,7 @@ if refs_faltantes:
     todos_completos = len(codigos_ingresados) == len(refs_faltantes)
 
     if todos_completos:
-        if st.button("✅ Guardar en Google Sheets y continuar"):
+        if st.button("✅ Guardar en Google Sheets y continuar", use_container_width=True, type="primary"):
             exitos = 0
             for ref, datos in codigos_ingresados.items():
                 if _guardar_referencia_en_sheets(
@@ -619,7 +653,8 @@ def generar_prn_lines(
     return lines
 
 
-st.divider()
+st.markdown("---")
+st.markdown("### ⬇️ Descargar archivos PRN")
 
 if st.button("✅ Generar archivos PRN", type="primary", use_container_width=True):
     archivos_prn: list[tuple[str, bytes]] = []
@@ -651,10 +686,11 @@ if st.button("✅ Generar archivos PRN", type="primary", use_container_width=Tru
         if len(archivos_prn) == 1:
             nombre, datos_prn = archivos_prn[0]
             st.download_button(
-                label     = f"⬇️ Descargar {nombre}",
-                data      = datos_prn,
-                file_name = nombre,
-                mime      = "application/octet-stream",
+                label              = f"⬇️ Descargar {nombre}",
+                data               = datos_prn,
+                file_name          = nombre,
+                mime               = "application/octet-stream",
+                use_container_width=True,
             )
         else:
             zip_buf = io.BytesIO()
@@ -663,10 +699,11 @@ if st.button("✅ Generar archivos PRN", type="primary", use_container_width=Tru
                     zf.writestr(nombre, datos_prn)
             zip_buf.seek(0)
             st.download_button(
-                label     = "⬇️ Descargar CPFE_facturas.zip",
-                data      = zip_buf,
-                file_name = "CPFE_facturas.zip",
-                mime      = "application/zip",
+                label              = "⬇️ Descargar CPFE_facturas.zip",
+                data               = zip_buf,
+                file_name          = "CPFE_facturas.zip",
+                mime               = "application/zip",
+                use_container_width=True,
             )
 
         # ── Tabla de verificación ──────────────────────────────────────────
