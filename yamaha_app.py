@@ -44,7 +44,7 @@ def _guardar_referencia_en_sheets(referencia: str, producto: str,
         from datetime import date
 
         SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
-        SPREADSHEET_ID = "1TToc60vLXvtGSgVz39MvxmONStxw1XiY"
+        SPREADSHEET_ID = "1JzKIDiMmjqVD-iYXTAjxk4wqPvdassNMZJjsNP_UtQI"
 
         creds_json = os.getenv("GOOGLE_SHEETS_CREDENTIALS")
         if creds_json:
@@ -74,7 +74,7 @@ def _guardar_referencia_en_sheets(referencia: str, producto: str,
 
 EXCEL_PATH     = Path("CARGUE FACTURAS DE COMPRA F3 ACT.xlsm")
 NIT_INCOLMOTOS = "890916911"
-GSHEETS_URL    = "https://docs.google.com/spreadsheets/d/1TToc60vLXvtGSgVz39MvxmONStxw1XiY/export?format=xlsx"
+GSHEETS_URL    = "https://docs.google.com/spreadsheets/d/1JzKIDiMmjqVD-iYXTAjxk4wqPvdassNMZJjsNP_UtQI/export?format=xlsx"
 
 # ─── PAGE CONFIG ──────────────────────────────────────────────────────────────
 
@@ -116,13 +116,58 @@ def _parse_wb(wb) -> tuple[dict, dict]:
     return invenarios, datos_tiendas
 
 
+def _cargar_con_gspread() -> tuple[dict, dict]:
+    """Lee catálogo desde Google Sheets usando service account."""
+    import gspread
+    import json as _json
+    from google.oauth2.service_account import Credentials
+
+    SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+    SPREADSHEET_ID = "1JzKIDiMmjqVD-iYXTAjxk4wqPvdassNMZJjsNP_UtQI"
+
+    creds_json = os.getenv("GOOGLE_SHEETS_CREDENTIALS")
+    if creds_json:
+        creds = Credentials.from_service_account_info(_json.loads(creds_json), scopes=SCOPES)
+    else:
+        creds = Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
+
+    gc = gspread.authorize(creds)
+    sp = gc.open_by_key(SPREADSHEET_ID)
+
+    invenarios: dict[str, dict] = {}
+    for row in sp.worksheet("INVENARIOS").get_all_values()[2:]:
+        ref = row[1] if len(row) > 1 else ""
+        if not ref or not str(ref).strip():
+            continue
+        producto = row[2] if len(row) > 2 else ""
+        cta_inv  = row[4] if len(row) > 4 else ""
+        invenarios[str(ref).strip()] = {
+            "producto": str(producto).strip(),
+            "cta_inv":  str(cta_inv).strip(),
+        }
+
+    datos_tiendas: dict[str, dict] = {}
+    for row in sp.worksheet("DATOS").get_all_values()[1:]:
+        tienda = row[1] if len(row) > 1 else ""
+        if not tienda or not str(tienda).strip():
+            continue
+        try:
+            cc = int(row[2]) if len(row) > 2 and row[2] else 0
+        except Exception:
+            cc = 0
+        try:
+            doc = int(row[3]) if len(row) > 3 and row[3] else 0
+        except Exception:
+            doc = 0
+        datos_tiendas[str(tienda).upper().strip()] = {"cc": cc, "doc": doc}
+
+    return invenarios, datos_tiendas
+
+
 def _cargar_con_fuente() -> tuple[dict, dict, str]:
     """Intenta Google Sheets primero; si falla, usa archivo local como fallback."""
     try:
-        resp = requests.get(GSHEETS_URL, allow_redirects=True, timeout=30)
-        resp.raise_for_status()
-        wb  = openpyxl.load_workbook(io.BytesIO(resp.content), data_only=True, keep_vba=True)
-        inv, tiendas = _parse_wb(wb)
+        inv, tiendas = _cargar_con_gspread()
         return inv, tiendas, "onedrive"
     except Exception:
         pass
@@ -357,12 +402,11 @@ if refs_faltantes:
                     exitos += 1
             if exitos == len(codigos_ingresados):
                 st.success(
-                    f"✅ {exitos} referencias guardadas correctamente. "
-                    "Haz clic en 'Actualizar referencias' en el sidebar "
-                    "y vuelve a procesar la factura."
+                    f"✅ {exitos} referencias guardadas correctamente."
                 )
                 for k in ["invenarios", "excel_fuente"]:
                     st.session_state.pop(k, None)
+                st.rerun()
             else:
                 st.error(
                     "Algunas referencias no se pudieron guardar. "
