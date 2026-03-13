@@ -558,7 +558,7 @@ def generar_prn_lines(
             + NIT_INCOLMOTOS.zfill(13)                   # NIT           13
             + "000"                                      # SUCURSAL       3
             + str(cuenta).ljust(10)[:10]                 # CUENTA        10
-            + str(producto).ljust(13)[:13]               # PRODUCTO      13
+            + str(producto).strip().zfill(13)[:13]         # PRODUCTO      13
             + fecha                                      # FECHA DOC      8
             + str(cc).zfill(4)                           # C.COSTO        4
             + "000"                                      # S.COSTO        3
