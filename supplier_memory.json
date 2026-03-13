@@ -1,0 +1,126 @@
+{
+  "890.916.911-6": {
+    "items": {
+      "llanta_maxxis_130_70_12_om_ma_3d_tl_tras_yw125": {
+        "cuenta_id": 5570,
+        "impuesto_id": null,
+        "centro_costo_id": null
+      },
+      "filtro_ventilador_yw125_09": {
+        "cuenta_id": 5456,
+        "impuesto_id": 3,
+        "centro_costo_id": null
+      },
+      "filtro_aire_58p4": {
+        "cuenta_id": 5456,
+        "impuesto_id": 3,
+        "centro_costo_id": null
+      },
+      "espuma_filtro_aire_yw125": {
+        "cuenta_id": 5456,
+        "impuesto_id": 3,
+        "centro_costo_id": null
+      },
+      "sello_valvula_nmax_t115bf21_22": {
+        "cuenta_id": 5456,
+        "impuesto_id": 3,
+        "centro_costo_id": null
+      },
+      "espejo_izq_xtz150_bbl1": {
+        "cuenta_id": 5456,
+        "impuesto_id": 3,
+        "centro_costo_id": null
+      },
+      "diapason_tapa_cola_ybr_fz16": {
+        "cuenta_id": 5456,
+        "impuesto_id": 3,
+        "centro_costo_id": null
+      },
+      "filtro_aceite_1_fz_16_xtz150": {
+        "cuenta_id": 5456,
+        "impuesto_id": 3,
+        "centro_costo_id": null
+      },
+      "jgo_pastas_freno_tras_xtz250_10326_incolbest": {
+        "cuenta_id": 6126,
+        "impuesto_id": null,
+        "centro_costo_id": null
+      },
+      "liquido_refrigerante_motor": {
+        "cuenta_id": 5456,
+        "impuesto_id": 3,
+        "centro_costo_id": null
+      },
+      "motocicleta_yamaha_t115fi_modelo_2026_114_cc_color_negro_mat": {
+        "cuenta_id": 5460,
+        "impuesto_id": null,
+        "centro_costo_id": null
+      },
+      "motocicleta_yamaha_t115fi_t115fl_5_color_negro_mate_azul_mod": {
+        "cuenta_id": 5461,
+        "impuesto_id": null,
+        "centro_costo_id": null
+      },
+      "motocicleta_yamaha_t115fi_t115fl_5_modelo_2026_114_cc_color_": {
+        "cuenta_id": 5484,
+        "impuesto_id": null,
+        "centro_costo_id": null
+      },
+      "motocicleta_marca_yamaha_color_negro_mate_azul_modelo_2026_1": {
+        "cuenta_id": 5484,
+        "impuesto_id": 3,
+        "centro_costo_id": null
+      }
+    },
+    "cuenta_id": 5461,
+    "impuesto_id": null,
+    "centro_costo_id": null
+  },
+  "901.763.847": {
+    "items": {
+      "enterizo_largo_bora_bora_negro_sesgo_crudo": {
+        "cuenta_id": 5936,
+        "impuesto_id": 3,
+        "centro_costo_id": null
+      },
+      "enterizo_largo_bora_bora_azul73_sesgo_crudo": {
+        "cuenta_id": 5936,
+        "impuesto_id": null,
+        "centro_costo_id": null
+      },
+      "enterizo_largo_bora_bora_azul56_sesgo_crudo": {
+        "cuenta_id": 5936,
+        "impuesto_id": 3,
+        "centro_costo_id": null
+      },
+      "enterizo_largo_bora_bora_cafe68_t_a_t": {
+        "cuenta_id": 5936,
+        "impuesto_id": 3,
+        "centro_costo_id": null
+      },
+      "enterizo_largo_maldivas_negro": {
+        "cuenta_id": 5961,
+        "impuesto_id": 3,
+        "centro_costo_id": null
+      },
+      "enterizo_largo_maldivas_cafe68": {
+        "cuenta_id": 5961,
+        "impuesto_id": 3,
+        "centro_costo_id": null
+      },
+      "ruching": {
+        "cuenta_id": 5371,
+        "impuesto_id": 3,
+        "centro_costo_id": null
+      },
+      "ruching_ruching": {
+        "cuenta_id": 5961,
+        "impuesto_id": 3,
+        "centro_costo_id": null
+      }
+    },
+    "cuenta_id": 5371,
+    "impuesto_id": null,
+    "centro_costo_id": null
+  }
+}
