@@ -10,13 +10,26 @@ import os
 import zipfile
 from pathlib import Path
 
+import unicodedata
+
 import anthropic
 import openpyxl
-import requests
 import streamlit as st
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+def _normalizar_ciudad(texto: str) -> str:
+    """Normaliza nombre de ciudad: elimina tildes, mayúsculas, toma primera palabra."""
+    return (
+        unicodedata.normalize("NFD", texto)
+        .encode("ascii", "ignore")
+        .decode("utf-8")
+        .upper()
+        .strip()
+        .split()[0]
+    )
 
 
 def _calcular_cta_inv(codigo_producto: str) -> str:
@@ -223,7 +236,7 @@ if "invenarios" not in st.session_state:
     st.session_state["excel_fuente"]  = _fuente
 
 invenarios    = st.session_state["invenarios"]
-datos_tiendas = st.session_state["datos_tiendas"]
+datos_tiendas = {_normalizar_ciudad(k): v for k, v in st.session_state["datos_tiendas"].items()}
 _fuente       = st.session_state.get("excel_fuente", "local")
 
 if not invenarios:
@@ -278,14 +291,21 @@ if "facturas_procesadas" not in st.session_state:
     st.session_state.facturas_procesadas = {}
 if "procesando" not in st.session_state:
     st.session_state.procesando = False
-if "proceso_completado" not in st.session_state:
-    st.session_state.proceso_completado = False
-
 def iniciar_proceso():
     st.session_state.procesando = True
-    st.session_state.proceso_completado = False
 
 if uploaded_files:
+    # Avisar si alguna factura ya fue procesada en esta sesión
+    ya_procesadas = [f.name for f in uploaded_files if f.name in st.session_state.facturas_procesadas]
+    for nombre_ya in ya_procesadas:
+        col_w, col_b = st.columns([4, 1])
+        with col_w:
+            st.warning(f"⚠️ **{nombre_ya}** ya fue procesada en esta sesión. ¿Deseas procesarla de nuevo?")
+        with col_b:
+            if st.button("Sí, reprocesar", key=f"reprocess_{nombre_ya}"):
+                del st.session_state.facturas_procesadas[nombre_ya]
+                st.rerun()
+
     st.button(
         "⚙️ Procesar facturas",
         type="primary",
@@ -390,7 +410,6 @@ if st.session_state.procesando and uploaded_files:
 
     st.session_state["facturas_extraidas"] = facturas_extraidas
     st.session_state.procesando = False
-    st.session_state.proceso_completado = True
     st.success(f"✅ {len(facturas_extraidas)} factura(s) procesada(s)")
 
 # ─── PASO 3: VALIDACIÓN ───────────────────────────────────────────────────────
@@ -415,31 +434,26 @@ for fac in facturas:
             })
 
 if refs_faltantes:
-    st.error("⚠️ Hay referencias nuevas que no están en el catálogo.")
     import pandas as pd
+    # Deduplicar por referencia (primera descripción encontrada)
+    refs_unicas: dict[str, str] = {}
+    for r in refs_faltantes:
+        if r["Referencia"] not in refs_unicas:
+            refs_unicas[r["Referencia"]] = r.get("Descripción", "")
+
+    n = len(refs_unicas)
+    st.warning(
+        f"📋 Se encontraron {n} referencia(s) nueva(s). "
+        "Ingresa el código Siigo para cada una y guarda."
+    )
     st.dataframe(
         pd.DataFrame(refs_faltantes),
         use_container_width=True,
         hide_index=True,
     )
-    st.warning(
-        "Crea estas referencias en Siigo, agrégalas al Excel, "
-        "sube el Excel actualizado al repo y vuelve a intentar."
-    )
-    codigos = list(dict.fromkeys(r["Referencia"] for r in refs_faltantes))
-    st.info("📋 Referencias nuevas detectadas: " + ", ".join(codigos))
-
-    st.markdown("## ⚠️ Referencias nuevas — acción requerida")
-    st.caption("Estas referencias no están en el catálogo. Asigna un código de producto Siigo a cada una para continuar.")
-    st.markdown(
-        "Ingresa el **código de producto Siigo** para cada referencia. "
-        "La cuenta contable se calcula automáticamente."
-    )
 
     codigos_ingresados = {}
-    for ref_item in refs_faltantes:
-        ref  = ref_item["Referencia"]
-        desc = ref_item.get("Descripción", "")
+    for ref, desc in refs_unicas.items():
         col1, col2, col3 = st.columns([2, 2, 2])
         with col1:
             st.markdown(f"**{ref}**  \n{desc}")
@@ -461,7 +475,7 @@ if refs_faltantes:
             else:
                 st.markdown("*Ingresa el código para ver la cuenta*")
 
-    todos_completos = len(codigos_ingresados) == len(refs_faltantes)
+    todos_completos = len(codigos_ingresados) == len(refs_unicas)
 
     if todos_completos:
         if st.button("✅ Guardar en Google Sheets y continuar", use_container_width=True, type="primary"):
@@ -483,12 +497,11 @@ if refs_faltantes:
                 st.rerun()
             else:
                 st.error(
-                    "Algunas referencias no se pudieron guardar. "
-                    "Verifica el archivo credentials.json."
+                    "No se pudo guardar. Intenta de nuevo o contacta al administrador."
                 )
     else:
-        faltantes_count = len(refs_faltantes) - len(codigos_ingresados)
-        st.warning(f"Faltan {faltantes_count} códigos por ingresar.")
+        faltantes_count = len(refs_unicas) - len(codigos_ingresados)
+        st.warning(f"Faltan {faltantes_count} código(s) por ingresar.")
 
     st.stop()
 
@@ -561,7 +574,7 @@ def generar_prn_lines(
     inv: dict,
     tiendas: dict,
 ) -> list[str]:
-    ciudad = factura_data["ciudad"].upper().strip().split()[0]
+    ciudad = _normalizar_ciudad(factura_data["ciudad"])
 
     if ciudad not in tiendas:
         raise ValueError(
@@ -579,7 +592,8 @@ def generar_prn_lines(
         .strip()
     )
     fecha     = factura_data["fecha"].replace("-", "")      # YYYYMMDD
-    fecha_vto = str(factura_data.get("fecha_vto", "00000000")).strip()[:8].zfill(8)
+    _fvto     = str(factura_data.get("fecha_vto", "")).strip()
+    fecha_vto = _fvto if (_fvto.isdigit() and len(_fvto) == 8) else "00000000"
 
     def fmt_line(
         sec: int,
@@ -590,6 +604,7 @@ def generar_prn_lines(
         valor: float,
         cantidad: float,
     ) -> str:
+        descripcion = str(descripcion).encode("latin-1", errors="replace").decode("latin-1")
         line = (
             "P"                                          # TIPO           1
             + str(doc).zfill(3)                          # COD.COMP       3
@@ -631,6 +646,8 @@ def generar_prn_lines(
     for item in factura_data.get("items", []):
         ref  = str(item["referencia"]).strip()
         look = inv[ref]
+        if not look.get("cta_inv", "").strip():
+            raise ValueError(f"La referencia '{ref}' no tiene cuenta contable en el catálogo. Verifica el Excel.")
         lines.append(fmt_line(
             sec         = sec,
             cuenta      = look["cta_inv"],
@@ -714,7 +731,7 @@ if st.button("✅ Generar archivos PRN", type="primary", use_container_width=Tru
         try:
             lines   = generar_prn_lines(fac, invenarios, datos_tiendas)
             content = "\r\n".join(lines) + "\r\n"
-            archivos_prn.append((nombre, content.encode("latin-1")))
+            archivos_prn.append((nombre, content.encode("latin-1", errors="replace")))
         except ValueError as e:
             st.error(str(e))
             error_generacion = True
