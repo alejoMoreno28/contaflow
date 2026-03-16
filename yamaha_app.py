@@ -275,16 +275,25 @@ uploaded_files = st.file_uploader(
 )
 
 if "facturas_procesadas" not in st.session_state:
-    st.session_state["facturas_procesadas"] = {}
+    st.session_state.facturas_procesadas = {}
 if "procesando" not in st.session_state:
-    st.session_state["procesando"] = False
+    st.session_state.procesando = False
+if "proceso_completado" not in st.session_state:
+    st.session_state.proceso_completado = False
 
-if uploaded_files and st.button(
-    "⚙️ Procesar facturas",
-    type="primary",
-    disabled=st.session_state.get("procesando", False),
-):
-    st.session_state["procesando"] = True
+def iniciar_proceso():
+    st.session_state.procesando = True
+    st.session_state.proceso_completado = False
+
+if uploaded_files:
+    st.button(
+        "⚙️ Procesar facturas",
+        type="primary",
+        on_click=iniciar_proceso,
+        disabled=st.session_state.procesando,
+    )
+
+if st.session_state.procesando and uploaded_files:
     facturas_extraidas = []
 
     with st.spinner("Procesando facturas, por favor espera..."):
@@ -325,8 +334,8 @@ if uploaded_files and st.button(
             status.markdown(f"🧠 Procesando **{idx}/{total}**: `{archivo.name}`...")
 
             # Cache: si ya fue procesada en esta sesión, reusar resultado
-            if archivo.name in st.session_state["facturas_procesadas"]:
-                facturas_extraidas.append(st.session_state["facturas_procesadas"][archivo.name])
+            if archivo.name in st.session_state.facturas_procesadas:
+                facturas_extraidas.append(st.session_state.facturas_procesadas[archivo.name])
                 bar.progress(idx / total)
                 continue
 
@@ -363,7 +372,7 @@ if uploaded_files and st.button(
 
                 datos = json.loads(raw)
                 datos["_nombre_archivo"] = archivo.name
-                st.session_state["facturas_procesadas"][archivo.name] = datos
+                st.session_state.facturas_procesadas[archivo.name] = datos
                 facturas_extraidas.append(datos)
 
             except json.JSONDecodeError:
@@ -380,7 +389,8 @@ if uploaded_files and st.button(
         bar.empty()
 
     st.session_state["facturas_extraidas"] = facturas_extraidas
-    st.session_state["procesando"] = False
+    st.session_state.procesando = False
+    st.session_state.proceso_completado = True
     st.success(f"✅ {len(facturas_extraidas)} factura(s) procesada(s)")
 
 # ─── PASO 3: VALIDACIÓN ───────────────────────────────────────────────────────
