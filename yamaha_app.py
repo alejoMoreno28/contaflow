@@ -238,7 +238,7 @@ with st.sidebar:
     if not os.environ.get("ANTHROPIC_API_KEY"):
         st.error("⚠️ ANTHROPIC_API_KEY no configurada")
     else:
-        st.success("✅ API Claude activa")
+        st.success("✅ Sistema IA activo")
 
 # ─── TÍTULO ───────────────────────────────────────────────────────────────────
 
@@ -263,10 +263,20 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True,
 )
 
-if uploaded_files and st.button("⚙️ Procesar facturas", type="primary"):
+if "facturas_procesadas" not in st.session_state:
+    st.session_state["facturas_procesadas"] = {}
+if "procesando" not in st.session_state:
+    st.session_state["procesando"] = False
+
+if uploaded_files and st.button(
+    "⚙️ Procesar facturas",
+    type="primary",
+    disabled=st.session_state.get("procesando", False),
+):
+    st.session_state["procesando"] = True
     facturas_extraidas = []
 
-    with st.spinner("Procesando facturas con IA..."):
+    with st.spinner("Procesando facturas, por favor espera..."):
         client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
         prompt = (
@@ -302,6 +312,13 @@ if uploaded_files and st.button("⚙️ Procesar facturas", type="primary"):
 
         for idx, archivo in enumerate(uploaded_files, 1):
             status.markdown(f"🧠 Procesando **{idx}/{total}**: `{archivo.name}`...")
+
+            # Cache: si ya fue procesada en esta sesión, reusar resultado
+            if archivo.name in st.session_state["facturas_procesadas"]:
+                facturas_extraidas.append(st.session_state["facturas_procesadas"][archivo.name])
+                bar.progress(idx / total)
+                continue
+
             try:
                 pdf_bytes  = archivo.read()
                 pdf_b64    = base64.standard_b64encode(pdf_bytes).decode("utf-8")
@@ -335,6 +352,7 @@ if uploaded_files and st.button("⚙️ Procesar facturas", type="primary"):
 
                 datos = json.loads(raw)
                 datos["_nombre_archivo"] = archivo.name
+                st.session_state["facturas_procesadas"][archivo.name] = datos
                 facturas_extraidas.append(datos)
 
             except json.JSONDecodeError:
@@ -351,6 +369,7 @@ if uploaded_files and st.button("⚙️ Procesar facturas", type="primary"):
         bar.empty()
 
     st.session_state["facturas_extraidas"] = facturas_extraidas
+    st.session_state["procesando"] = False
     st.success(f"✅ {len(facturas_extraidas)} factura(s) procesada(s)")
 
 # ─── PASO 3: VALIDACIÓN ───────────────────────────────────────────────────────
