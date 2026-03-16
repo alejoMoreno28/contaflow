@@ -109,6 +109,13 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# ─── VALIDACIÓN API KEY ────────────────────────────────────────────────────────
+
+api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+if not api_key:
+    st.error("⚠️ Error de configuración del sistema. Contacta al administrador.")
+    st.stop()
+
 # ─── PASO 1: CARGAR EXCEL AL INICIO ───────────────────────────────────────────
 
 def _parse_wb(wb) -> tuple[dict, dict]:
@@ -193,10 +200,14 @@ def _cargar_con_fuente() -> tuple[dict, dict, str]:
     """Intenta Google Sheets primero; si falla, usa archivo local como fallback."""
     try:
         inv, tiendas = _cargar_con_gspread()
-        return inv, tiendas, "onedrive"
+        return inv, tiendas, "gsheets"
     except Exception:
         pass
 
+    st.warning(
+        "⚠️ No se pudo conectar al catálogo en línea. Se está usando una copia local "
+        "que puede estar desactualizada. Haz clic en 'Actualizar catálogo' para reintentar."
+    )
     if not EXCEL_PATH.exists():
         return {}, {}, "error"
     wb = openpyxl.load_workbook(EXCEL_PATH, data_only=True, keep_vba=True)
@@ -227,7 +238,7 @@ if not invenarios:
 with st.sidebar:
     st.markdown("## 🏍️ ContaFlow Yamaha")
     st.divider()
-    if _fuente == "onedrive":
+    if _fuente == "gsheets":
         st.success(f"✅ Catálogo Google Sheets")
         st.caption(f"{len(invenarios):,} referencias cargadas")
     else:
@@ -277,7 +288,7 @@ if uploaded_files and st.button(
     facturas_extraidas = []
 
     with st.spinner("Procesando facturas, por favor espera..."):
-        client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+        client = anthropic.Anthropic(api_key=api_key)
 
         prompt = (
             "Eres un extractor de datos de facturas de Incolmotos Colombia. "
@@ -599,7 +610,8 @@ def generar_prn_lines(
             + "0000"                                     # COD.FORMA PAGO 4
             + "00"                                       # COD.BANCO      2
         )
-        assert len(line) == 220, f"Línea tiene {len(line)} chars (esperado 220)"
+        if len(line) != 220:
+            raise ValueError(f"Error interno generando PRN: línea tiene {len(line)} caracteres (esperado 220). Contacta al administrador.")
         return line
 
     lines: list[str] = []
@@ -652,7 +664,8 @@ def generar_prn_lines(
         + "0000"                                         # COD.FORMA PAGO 4
         + "00"                                           # COD.BANCO      2
     )
-    assert len(cxp_line) == 220, f"Línea CXP tiene {len(cxp_line)} chars (esperado 220)"
+    if len(cxp_line) != 220:
+        raise ValueError(f"Error interno generando PRN: línea tiene {len(cxp_line)} caracteres (esperado 220). Contacta al administrador.")
     lines.append(cxp_line)
     sec += 1
 
