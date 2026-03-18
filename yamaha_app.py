@@ -337,13 +337,18 @@ if st.session_state.procesando and uploaded_files:
             "  \"items\": [\n"
             "    {\n"
             "      \"referencia\": \"exactamente como aparece en columna Referencia, sin espacios extra\",\n"
-            "      \"descripcion\": \"columna Producto, máximo 50 caracteres\",\n"
+            "      \"descripcion\": \"columna Producto, texto completo sin truncar\",\n"
             "      \"cantidad\": 1,\n"
             "      \"valor_total\": 0.0,\n"
             "      \"tiene_iva\": true\n"
             "    }\n"
             "  ]\n"
-            "}"
+            "}\n\n"
+            "INSTRUCCIÓN CRÍTICA: Esta factura puede tener múltiples páginas. "
+            "Debes extraer ABSOLUTAMENTE TODOS los ítems de TODAS las páginas "
+            "sin excepción. No pares hasta haber procesado el último ítem. "
+            "El array 'items' del JSON debe estar completo y el JSON debe "
+            "cerrarse correctamente con todas las llaves."
         )
 
         bar     = st.progress(0)
@@ -385,12 +390,41 @@ if st.session_state.procesando and uploaded_files:
                 )
 
                 raw = message.content[0].text.strip()
+
+                # Verificar si la respuesta fue truncada por límite de tokens
+                if message.stop_reason == "max_tokens":
+                    st.warning(
+                        f"⚠️ **{archivo.name}**: La IA alcanzó el límite de tokens al procesar. "
+                        "Es posible que falten ítems. Verifica manualmente antes de subir a Siigo."
+                    )
+
                 # Limpiar posibles bloques markdown
                 import re
                 raw = re.sub(r"^```(?:json)?\s*\n?", "", raw)
                 raw = re.sub(r"\n?```\s*$", "", raw).strip()
 
                 datos = json.loads(raw)
+
+                # Validación: comparar ítems extraídos vs ítems detectados en el PDF
+                n_extraidos = len(datos.get("items", []))
+                n_en_pdf = 0
+                try:
+                    pdf_snippet = pdf_bytes.decode("latin-1", errors="ignore")
+                    posibles = [
+                        int(m) for m in re.findall(r"(?m)^\s*([1-9][0-9]{0,2})\s+[A-Z]", pdf_snippet)
+                        if int(m) <= 500
+                    ]
+                    if posibles:
+                        n_en_pdf = max(posibles)
+                except Exception:
+                    pass
+                if n_en_pdf > 0 and n_extraidos < n_en_pdf:
+                    st.warning(
+                        f"⚠️ Advertencia: El PDF tiene aproximadamente {n_en_pdf} ítems pero solo "
+                        f"se extrajeron {n_extraidos}. El PRN puede estar incompleto. Verifica el "
+                        f"archivo antes de subirlo a Siigo."
+                    )
+
                 datos["_nombre_archivo"] = archivo.name
                 st.session_state.facturas_procesadas[archivo.name] = datos
                 facturas_extraidas.append(datos)
