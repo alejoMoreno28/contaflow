@@ -348,7 +348,14 @@ if st.session_state.procesando and uploaded_files:
             "Debes extraer ABSOLUTAMENTE TODOS los ítems de TODAS las páginas "
             "sin excepción. No pares hasta haber procesado el último ítem. "
             "El array 'items' del JSON debe estar completo y el JSON debe "
-            "cerrarse correctamente con todas las llaves."
+            "cerrarse correctamente con todas las llaves.\n\n"
+            "REGLA ABSOLUTA DE EXTRACCIÓN: El array 'items' debe tener "
+            "exactamente un objeto por cada número de ítem visible en el PDF. "
+            "Si la factura tiene ítems 1 al 54, el array debe tener 54 objetos. "
+            "Ejemplo: si la referencia X aparece en el ítem 2, en el ítem 15 y "
+            "en el ítem 45, debes crear TRES objetos separados en el array, "
+            "uno para cada número de ítem. NUNCA fusiones, combines ni omitas "
+            "objetos por similitud de referencia, descripción o precio."
         )
 
         bar     = st.progress(0)
@@ -405,7 +412,7 @@ if st.session_state.procesando and uploaded_files:
 
                 datos = json.loads(raw)
 
-                # Validación: comparar ítems extraídos vs ítems detectados en el PDF
+                # Validación 1: conteo total de ítems vs estimado del PDF
                 n_extraidos = len(datos.get("items", []))
                 n_en_pdf = 0
                 try:
@@ -424,6 +431,38 @@ if st.session_state.procesando and uploaded_files:
                         f"se extrajeron {n_extraidos}. El PRN puede estar incompleto. Verifica el "
                         f"archivo antes de subirlo a Siigo."
                     )
+
+                # Validación 2: detectar referencias deduplicadas en el JSON extraído
+                # Si una referencia aparece menos veces en el JSON que en el PDF, la IA la fusionó
+                try:
+                    from collections import Counter
+                    refs_extraidas = Counter(
+                        str(it.get("referencia", "")).strip()
+                        for it in datos.get("items", [])
+                    )
+                    refs_duplicadas_omitidas = []
+                    for ref, cnt in refs_extraidas.items():
+                        # Contar cuántas veces aparece esta referencia en el texto del PDF
+                        if ref and len(ref) >= 4:
+                            cnt_pdf = pdf_snippet.count(ref)
+                            # Si el PDF menciona la ref más veces que el JSON → posible deduplicación
+                            # cnt_pdf > cnt cubre todos los casos:
+                            #   2x PDF / 1x JSON → alerta, 3x PDF / 2x JSON → alerta, etc.
+                            # Falsos positivos bajos: refs son códigos específicos (ej: 932105400100)
+                            # poco probables en otro contexto del PDF.
+                            if cnt_pdf > cnt:
+                                refs_duplicadas_omitidas.append(
+                                    f"'{ref}' (en JSON: {cnt}×, en PDF: ~{cnt_pdf} menciones)"
+                                )
+                    if refs_duplicadas_omitidas:
+                        st.warning(
+                            f"⚠️ **{archivo.name}**: Posibles referencias deduplicadas — "
+                            "la IA puede haber fusionado ítems repetidos: "
+                            + ", ".join(refs_duplicadas_omitidas)
+                            + ". Verifica el PRN antes de subir a Siigo."
+                        )
+                except Exception:
+                    pass
 
                 datos["_nombre_archivo"] = archivo.name
                 st.session_state.facturas_procesadas[archivo.name] = datos
