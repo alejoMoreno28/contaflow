@@ -691,6 +691,38 @@ if prods_duplicados:
 
 # ─── PASO 4 + 5: GENERACIÓN Y DESCARGA PRN ───────────────────────────────────
 
+_IBAGUE_SEXTA_KEYWORDS = [
+    "CARRERA 6", "CRA 6", "CR 6", "BELALCAZAR",
+    "SEXTA", "CARRERA SEXTA", "25-40",
+]
+_IBAGUE_PRINCIPAL_KEYWORDS = [
+    "CARRERA 5", "CRA 5", "CR 5", "QUINTA", "20-39",
+    "CARRERA QUINTA", "PRINCIPAL",
+]
+
+
+def _resolver_tienda_ibague(direccion: str) -> tuple:
+    """
+    Retorna (cc, doc) según la dirección de entrega para las dos tiendas de Ibagué.
+    Sexta   (Cra 6 / Belalcázar): cc=1,  doc=1  → empresa 001, CC 0001
+    Principal (Cra 5):             cc=14, doc=7  → empresa 007, CC 0014
+    Retorna (None, None) si no se puede determinar.
+    """
+    dir_norm = (
+        unicodedata.normalize("NFD", str(direccion))
+        .encode("ascii", "ignore")
+        .decode("utf-8")
+        .upper()
+    )
+    for kw in _IBAGUE_SEXTA_KEYWORDS:
+        if kw in dir_norm:
+            return 1, 1
+    for kw in _IBAGUE_PRINCIPAL_KEYWORDS:
+        if kw in dir_norm:
+            return 14, 7
+    return None, None
+
+
 def generar_prn_lines(
     factura_data: dict,
     inv: dict,
@@ -698,14 +730,24 @@ def generar_prn_lines(
 ) -> list[str]:
     ciudad = _normalizar_ciudad(factura_data["ciudad"])
 
-    if ciudad not in tiendas:
+    if "IBAGU" in ciudad:
+        direccion = str(factura_data.get("direccion_entrega", ""))
+        cc, doc = _resolver_tienda_ibague(direccion)
+        if cc is None:
+            st.warning(
+                f"⚠️ No se pudo determinar la tienda de Ibagué automáticamente. "
+                f"Dirección detectada: {direccion or '(vacía)'}. "
+                "Por favor verifica el PRN antes de subir a Siigo."
+            )
+            cc, doc = 1, 1  # Fallback: Sexta (empresa 001, CC 0001)
+    elif ciudad not in tiendas:
         raise ValueError(
             f"Ciudad '{ciudad}' no encontrada en Excel DATOS. "
             f"Ciudades disponibles: {list(tiendas.keys())}"
         )
-
-    cc  = tiendas[ciudad]["cc"]
-    doc = tiendas[ciudad]["doc"]
+    else:
+        cc  = tiendas[ciudad]["cc"]
+        doc = tiendas[ciudad]["doc"]
 
     num_doc = (
         factura_data["numero_factura"]
