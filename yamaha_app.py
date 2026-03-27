@@ -319,44 +319,134 @@ if st.session_state.procesando and uploaded_files:
     with st.spinner("Procesando facturas, por favor espera..."):
         client = anthropic.Anthropic(api_key=api_key)
 
-        prompt = (
-            "Eres un extractor de datos de facturas de Incolmotos Colombia. "
-            "Extrae exactamente estos campos y responde SOLO con JSON válido, "
-            "sin explicaciones, sin markdown, sin bloques de código:\n"
-            "{\n"
-            "  \"numero_factura\": \"CPFE-XXXXXX (número completo con prefijo)\",\n"
-            "  \"fecha\": \"YYYY-MM-DD\",\n"
-            "  \"ciudad\": \"solo la primera palabra del campo Ciudad del encabezado, "
-            "ejemplo: si dice NEIVA HUILA devuelve NEIVA, "
-            "si dice GIRARDOT CUNDINAMARCA devuelve GIRARDOT\",\n"
-            "  \"subtotal\": 0.0,\n"
-            "  \"iva_total\": 0.0,\n"
-            "  \"fecha_vto\": \"YYYYMMDD — buscar primero el texto 'HASTA EL DD-MM-YYYY' "
-            "(fecha pronto pago, convertir de DD-MM-YYYY a YYYYMMDD); "
-            "si no existe, usar el campo Vencimiento del encabezado (ya en formato YYYYMMDD)\",\n"
-            "  \"items\": [\n"
-            "    {\n"
-            "      \"referencia\": \"exactamente como aparece en columna Referencia, sin espacios extra\",\n"
-            "      \"descripcion\": \"columna Producto, texto completo sin truncar\",\n"
-            "      \"cantidad\": 1,\n"
-            "      \"valor_total\": 0.0,\n"
-            "      \"tiene_iva\": true\n"
-            "    }\n"
-            "  ]\n"
-            "}\n\n"
-            "INSTRUCCIÓN CRÍTICA: Esta factura puede tener múltiples páginas. "
-            "Debes extraer ABSOLUTAMENTE TODOS los ítems de TODAS las páginas "
-            "sin excepción. No pares hasta haber procesado el último ítem. "
-            "El array 'items' del JSON debe estar completo y el JSON debe "
-            "cerrarse correctamente con todas las llaves.\n\n"
-            "REGLA ABSOLUTA DE EXTRACCIÓN: El array 'items' debe tener "
-            "exactamente un objeto por cada número de ítem visible en el PDF. "
-            "Si la factura tiene ítems 1 al 54, el array debe tener 54 objetos. "
-            "Ejemplo: si la referencia X aparece en el ítem 2, en el ítem 15 y "
-            "en el ítem 45, debes crear TRES objetos separados en el array, "
-            "uno para cada número de ítem. NUNCA fusiones, combines ni omitas "
-            "objetos por similitud de referencia, descripción o precio."
-        )
+        def _extraer_iterativa(client, pdf_b64, nombre):
+            """Extrae datos del PDF con llamadas iterativas de max 50 ítems cada una."""
+            import re as _re
+
+            _PROMPT_INICIAL = (
+                "Eres un extractor de datos de facturas de Incolmotos Colombia.\n"
+                "Extrae estos datos y responde SOLO con JSON válido, sin explicaciones ni markdown:\n"
+                "{\n"
+                "  \"header\": {\n"
+                "    \"numero_factura\": \"CPFE-XXXXXX (número completo con prefijo)\",\n"
+                "    \"fecha\": \"YYYY-MM-DD\",\n"
+                "    \"ciudad\": \"solo la primera palabra del campo Ciudad del encabezado, "
+                "ej: si dice NEIVA HUILA devuelve NEIVA\",\n"
+                "    \"direccion_entrega\": \"dirección física del almacén destino tal como aparece en el PDF\",\n"
+                "    \"subtotal\": 0.0,\n"
+                "    \"iva_total\": 0.0,\n"
+                "    \"fecha_vto\": \"YYYYMMDD — buscar primero 'HASTA EL DD-MM-YYYY' "
+                "(convertir de DD-MM-YYYY a YYYYMMDD); si no existe usar campo Vencimiento del encabezado\"\n"
+                "  },\n"
+                "  \"items\": [\n"
+                "    {\n"
+                "      \"referencia\": \"exactamente como aparece en columna Referencia, sin espacios extra\",\n"
+                "      \"descripcion\": \"columna Producto, máximo 50 caracteres\",\n"
+                "      \"cantidad\": 1,\n"
+                "      \"valor_total\": 0.0,\n"
+                "      \"tiene_iva\": true\n"
+                "    }\n"
+                "  ],\n"
+                "  \"hay_mas_items\": false\n"
+                "}\n\n"
+                "INSTRUCCIONES:\n"
+                "- Extrae los primeros 50 ítems de la factura.\n"
+                "- Si la factura tiene más de 50 ítems, extrae solo los primeros 50 y pon hay_mas_items: true.\n"
+                "- Si tiene 50 o menos ítems, extráelos todos y pon hay_mas_items: false.\n"
+                "- NUNCA fusiones ni combines ítems con la misma referencia; "
+                "cada fila del PDF es un objeto separado en el array.\n"
+                "- REGLA ABSOLUTA: el array items debe tener exactamente un objeto "
+                "por cada número de ítem visible en el PDF."
+            )
+
+            def _pdf_content(pdf_b64):
+                return {
+                    "type": "document",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "application/pdf",
+                        "data": pdf_b64,
+                    },
+                }
+
+            def _llamar_haiku(client, pdf_b64, prompt_text):
+                return client.messages.create(
+                    model="claude-haiku-4-5-20251001",
+                    max_tokens=8192,
+                    messages=[{
+                        "role": "user",
+                        "content": [_pdf_content(pdf_b64), {"type": "text", "text": prompt_text}],
+                    }],
+                )
+
+            def _limpiar_json(raw):
+                raw = _re.sub(r"^```(?:json)?\s*\n?", "", raw.strip())
+                return _re.sub(r"\n?```\s*$", "", raw).strip()
+
+            # ── Llamada 1: header + primeros 50 ítems ──────────────────────
+            msg1 = _llamar_haiku(client, pdf_b64, _PROMPT_INICIAL)
+            raw1 = _limpiar_json(msg1.content[0].text)
+            try:
+                chunk1 = json.loads(raw1)
+            except json.JSONDecodeError:
+                st.error(f"Error procesando página 1 de {nombre}. Reintenta.")
+                return None
+
+            header       = chunk1.get("header", {})
+            todos_items  = list(chunk1.get("items", []))
+            hay_mas      = chunk1.get("hay_mas_items", False)
+
+            # ── Llamadas siguientes: 50 ítems por vez ──────────────────────
+            iteracion = 1
+            while hay_mas and iteracion < 10:
+                iteracion += 1
+                ultimos_3  = todos_items[-3:] if len(todos_items) >= 3 else todos_items
+                ultima_ref = ultimos_3[-1].get("referencia", "") if ultimos_3 else ""
+
+                prompt_cont = (
+                    "Esta es la misma factura. Ya extraje algunos ítems. Los últimos 3 que tengo son:\n"
+                    + json.dumps(ultimos_3, ensure_ascii=False, indent=2)
+                    + f"\n\nExtrae los siguientes 50 ítems que aparecen DESPUÉS de la "
+                    f"referencia \"{ultima_ref}\" en el PDF.\n"
+                    "Responde SOLO con JSON válido, sin explicaciones ni markdown:\n"
+                    "{\n"
+                    "  \"items\": [...],\n"
+                    "  \"hay_mas_items\": false\n"
+                    "}\n\n"
+                    "Si hay más ítems después de los 50 que extraigas, pon hay_mas_items: true.\n"
+                    "Si no hay más ítems, pon hay_mas_items: false.\n"
+                    "NUNCA fusiones ni combines ítems con la misma referencia; "
+                    "cada fila del PDF es un objeto separado."
+                )
+
+                msg_n = _llamar_haiku(client, pdf_b64, prompt_cont)
+                raw_n = _limpiar_json(msg_n.content[0].text)
+                try:
+                    chunk_n = json.loads(raw_n)
+                except json.JSONDecodeError:
+                    st.error(f"Error procesando página {iteracion} de {nombre}. Reintenta.")
+                    return None
+
+                nuevos     = chunk_n.get("items", [])
+                todos_items.extend(nuevos)
+                hay_mas    = chunk_n.get("hay_mas_items", False)
+
+            if hay_mas:
+                st.warning(
+                    f"⚠️ **{nombre}**: Factura muy grande — se procesaron {len(todos_items)} ítems. "
+                    "Verifica que el total cuadre antes de subir a Siigo."
+                )
+
+            return {
+                "numero_factura":    header.get("numero_factura", ""),
+                "fecha":             header.get("fecha", ""),
+                "ciudad":            header.get("ciudad", ""),
+                "direccion_entrega": header.get("direccion_entrega", ""),
+                "subtotal":          header.get("subtotal", 0.0),
+                "iva_total":         header.get("iva_total", 0.0),
+                "fecha_vto":         header.get("fecha_vto", ""),
+                "items":             todos_items,
+            }
 
         bar     = st.progress(0)
         status  = st.empty()
@@ -372,45 +462,16 @@ if st.session_state.procesando and uploaded_files:
                 continue
 
             try:
-                pdf_bytes  = archivo.read()
-                pdf_b64    = base64.standard_b64encode(pdf_bytes).decode("utf-8")
+                pdf_bytes = archivo.read()
+                pdf_b64   = base64.standard_b64encode(pdf_bytes).decode("utf-8")
 
-                message = client.messages.create(
-                    model="claude-haiku-4-5-20251001",
-                    max_tokens=16000,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": [
-                                {
-                                    "type": "document",
-                                    "source": {
-                                        "type":       "base64",
-                                        "media_type": "application/pdf",
-                                        "data":       pdf_b64,
-                                    },
-                                },
-                                {"type": "text", "text": prompt},
-                            ],
-                        }
-                    ],
-                )
+                datos = _extraer_iterativa(client, pdf_b64, archivo.name)
+                if datos is None:
+                    bar.progress(idx / total)
+                    continue
 
-                raw = message.content[0].text.strip()
-
-                # Verificar si la respuesta fue truncada por límite de tokens
-                if message.stop_reason == "max_tokens":
-                    st.warning(
-                        f"⚠️ **{archivo.name}**: La IA alcanzó el límite de tokens al procesar. "
-                        "Es posible que falten ítems. Verifica manualmente antes de subir a Siigo."
-                    )
-
-                # Limpiar posibles bloques markdown
                 import re
-                raw = re.sub(r"^```(?:json)?\s*\n?", "", raw)
-                raw = re.sub(r"\n?```\s*$", "", raw).strip()
-
-                datos = json.loads(raw)
+                pdf_snippet = ""
 
                 # Validación 1: conteo total de ítems vs estimado del PDF
                 n_extraidos = len(datos.get("items", []))
@@ -433,7 +494,6 @@ if st.session_state.procesando and uploaded_files:
                     )
 
                 # Validación 2: detectar referencias deduplicadas en el JSON extraído
-                # Si una referencia aparece menos veces en el JSON que en el PDF, la IA la fusionó
                 try:
                     from collections import Counter
                     refs_extraidas = Counter(
@@ -442,14 +502,8 @@ if st.session_state.procesando and uploaded_files:
                     )
                     refs_duplicadas_omitidas = []
                     for ref, cnt in refs_extraidas.items():
-                        # Contar cuántas veces aparece esta referencia en el texto del PDF
                         if ref and len(ref) >= 4:
                             cnt_pdf = pdf_snippet.count(ref)
-                            # Si el PDF menciona la ref más veces que el JSON → posible deduplicación
-                            # cnt_pdf > cnt cubre todos los casos:
-                            #   2x PDF / 1x JSON → alerta, 3x PDF / 2x JSON → alerta, etc.
-                            # Falsos positivos bajos: refs son códigos específicos (ej: 932105400100)
-                            # poco probables en otro contexto del PDF.
                             if cnt_pdf > cnt:
                                 refs_duplicadas_omitidas.append(
                                     f"'{ref}' (en JSON: {cnt}×, en PDF: ~{cnt_pdf} menciones)"
@@ -468,11 +522,6 @@ if st.session_state.procesando and uploaded_files:
                 st.session_state.facturas_procesadas[archivo.name] = datos
                 facturas_extraidas.append(datos)
 
-            except json.JSONDecodeError:
-                st.error(
-                    f"Error procesando {archivo.name}: la IA no devolvió "
-                    "JSON válido. Intenta de nuevo."
-                )
             except Exception as e:
                 st.error(f"Error procesando {archivo.name}: {e}")
 
