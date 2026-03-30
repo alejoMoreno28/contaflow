@@ -708,6 +708,7 @@ def _resolver_tienda_ibague(direccion: str) -> tuple:
     Principal (Cra 5):             cc=14, doc=7  → empresa 007, CC 0014
     Retorna (None, None) si no se puede determinar.
     """
+    st.write(f"DEBUG dirección: '{direccion}'")
     dir_norm = (
         unicodedata.normalize("NFD", str(direccion))
         .encode("ascii", "ignore")
