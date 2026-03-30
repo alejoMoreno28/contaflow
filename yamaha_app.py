@@ -691,22 +691,24 @@ if prods_duplicados:
 
 # ─── PASO 4 + 5: GENERACIÓN Y DESCARGA PRN ───────────────────────────────────
 
-_IBAGUE_SEXTA_KEYWORDS = [
-    "CARRERA 6", "CRA 6", "CRR 6", "CR 6", "BELALCAZAR",
-    "SEXTA", "CARRERA SEXTA", "25-40", "25 40",
-]
+# Nota: BELALCÁZAR normaliza a BELALCAZAR (NFD + ascii ignore), no duplicar.
 _IBAGUE_PRINCIPAL_KEYWORDS = [
     "CARRERA 5", "CRA 5", "CRR 5", "CR 5", "QUINTA", "20-39", "20 39",
-    "CARRERA QUINTA", "PRINCIPAL",
+    "CARRERA QUINTA", "PRINCIPAL", "B 1 CARMEN",
+]
+_IBAGUE_SEXTA_KEYWORDS = [
+    "CARRERA 6", "CRA 6", "CRR 6", "CR 6", "BELALCAZAR",
+    "BRR BELALCAZAR", "SEXTA", "CARRERA SEXTA", "25-40", "25 40",
 ]
 
 
 def _resolver_tienda_ibague(direccion: str) -> tuple:
     """
     Retorna (cc, doc) según la dirección de entrega para las dos tiendas de Ibagué.
-    Sexta   (Cra 6 / Belalcázar): cc=1,  doc=1  → empresa 001, CC 0001
-    Principal (Cra 5):             cc=14, doc=7  → empresa 007, CC 0014
+    Principal (Cra 5 / B1 Carmen): cc=14, doc=7  → empresa 007, CC 0014
+    Sexta     (Cra 6 / Belalcázar): cc=1,  doc=1  → empresa 001, CC 0001
     Retorna (None, None) si no se puede determinar.
+    Evaluación: Principal primero, Sexta segundo, fallback a Sexta con warning.
     """
     dir_norm = (
         unicodedata.normalize("NFD", str(direccion))
@@ -714,12 +716,12 @@ def _resolver_tienda_ibague(direccion: str) -> tuple:
         .decode("utf-8")
         .upper()
     )
-    for kw in _IBAGUE_SEXTA_KEYWORDS:
-        if kw in dir_norm:
-            return 1, 1
     for kw in _IBAGUE_PRINCIPAL_KEYWORDS:
         if kw in dir_norm:
             return 14, 7
+    for kw in _IBAGUE_SEXTA_KEYWORDS:
+        if kw in dir_norm:
+            return 1, 1
     return None, None
 
 
