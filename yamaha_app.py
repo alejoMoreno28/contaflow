@@ -692,11 +692,11 @@ if prods_duplicados:
 # ─── PASO 4 + 5: GENERACIÓN Y DESCARGA PRN ───────────────────────────────────
 
 _IBAGUE_SEXTA_KEYWORDS = [
-    "CARRERA 6", "CRA 6", "CR 6", "BELALCAZAR",
-    "SEXTA", "CARRERA SEXTA", "25-40",
+    "CARRERA 6", "CRA 6", "CRR 6", "CR 6", "BELALCAZAR",
+    "SEXTA", "CARRERA SEXTA", "25-40", "25 40",
 ]
 _IBAGUE_PRINCIPAL_KEYWORDS = [
-    "CARRERA 5", "CRA 5", "CR 5", "QUINTA", "20-39",
+    "CARRERA 5", "CRA 5", "CRR 5", "CR 5", "QUINTA", "20-39", "20 39",
     "CARRERA QUINTA", "PRINCIPAL",
 ]
 
@@ -708,7 +708,6 @@ def _resolver_tienda_ibague(direccion: str) -> tuple:
     Principal (Cra 5):             cc=14, doc=7  → empresa 007, CC 0014
     Retorna (None, None) si no se puede determinar.
     """
-    st.write(f"DEBUG dirección: '{direccion}'")
     dir_norm = (
         unicodedata.normalize("NFD", str(direccion))
         .encode("ascii", "ignore")
