@@ -332,7 +332,7 @@ if st.session_state.procesando and uploaded_files:
                 "    \"fecha\": \"YYYY-MM-DD\",\n"
                 "    \"ciudad\": \"solo la primera palabra del campo Ciudad del encabezado, "
                 "ej: si dice NEIVA HUILA devuelve NEIVA\",\n"
-                "    \"direccion_entrega\": \"dirección física del almacén destino tal como aparece en el PDF\",\n"
+                "    \"direccion_entrega\": \"dirección del COMPRADOR (campo 'Dirección:' que aparece junto a 'Señores: YAMAMOTOS'), NO la dirección de Incolmotos/Girardota que es el emisor de la factura\",\n"
                 "    \"subtotal\": 0.0,\n"
                 "    \"iva_total\": 0.0,\n"
                 "    \"fecha_vto\": \"YYYYMMDD — buscar primero 'HASTA EL DD-MM-YYYY' "
