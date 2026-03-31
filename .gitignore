@@ -30,3 +30,13 @@ Thumbs.db
 # Streamlit
 .streamlit/secrets.toml
 *.pdf
+
+# Next.js / Node (contaflow-web)
+contaflow-web/node_modules/
+contaflow-web/.next/
+
+# Claude Code worktrees
+.claude/worktrees/
+
+# Archivos grandes de referencia
+referencias-diseño/
