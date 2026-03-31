@@ -151,8 +151,8 @@ def _parse_wb(wb) -> tuple[dict, dict]:
         tienda = row[1]  # col B
         if tienda is None or str(tienda).strip() == "":
             continue
-        cc  = row[2]  # col C
-        doc = row[3]  # col D
+        doc = row[2]  # col C → empresa (COD.COMP [1:4])
+        cc  = row[3]  # col D → cc (C.COSTO [67:71])
         datos_tiendas[str(tienda).upper().strip()] = {
             "cc":  int(cc)  if cc  is not None else 0,
             "doc": int(doc) if doc is not None else 0,
@@ -197,13 +197,13 @@ def _cargar_con_gspread() -> tuple[dict, dict]:
         if not tienda or not str(tienda).strip():
             continue
         try:
-            cc = int(row[2]) if len(row) > 2 and row[2] else 0
-        except Exception:
-            cc = 0
-        try:
-            doc = int(row[3]) if len(row) > 3 and row[3] else 0
+            doc = int(row[2]) if len(row) > 2 and row[2] else 0  # col C → empresa (COD.COMP [1:4])
         except Exception:
             doc = 0
+        try:
+            cc = int(row[3]) if len(row) > 3 and row[3] else 0   # col D → cc (C.COSTO [67:71])
+        except Exception:
+            cc = 0
         datos_tiendas[str(tienda).upper().strip()] = {"cc": cc, "doc": doc}
 
     return invenarios, datos_tiendas
@@ -343,7 +343,7 @@ if st.session_state.procesando and uploaded_files:
                 "      \"referencia\": \"exactamente como aparece en columna Referencia, sin espacios extra\",\n"
                 "      \"descripcion\": \"columna Producto, máximo 50 caracteres\",\n"
                 "      \"cantidad\": 1,\n"
-                "      \"valor_total\": 0.0,\n"
+                "      \"valor_total\": 0.0,  (columna 'Valor Total' del PDF, ya con descuento aplicado — NO precio unitario × cantidad)\n"
                 "      \"tiene_iva\": true\n"
                 "    }\n"
                 "  ],\n"
