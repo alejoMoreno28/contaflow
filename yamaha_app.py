@@ -20,6 +20,23 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+
+def _resolver_tienda_ibague(direccion: str):
+    import unicodedata
+    d = unicodedata.normalize('NFD', str(direccion)).encode('ascii','ignore').decode().upper()
+    
+    PRINCIPAL_KW = ['CR 5','CRR 5','CARRERA 5','CRA 5','QUINTA','20 39','20-39','B 1 CARMEN','PRINCIPAL']
+    SEXTA_KW    = ['CR 6','CRR 6','CARRERA 6','CRA 6','BELALCAZAR','BRR BELALCAZAR','SEXTA','25 40','25-40']
+    
+    for kw in PRINCIPAL_KW:
+        if kw in d:
+            return 7, 14
+    for kw in SEXTA_KW:
+        if kw in d:
+            return 1, 1
+            
+    return 1, 1
+
 def _normalizar_ciudad(texto: str) -> str:
     """Normaliza nombre de ciudad: elimina tildes, mayúsculas, toma primera palabra."""
     return (
@@ -151,8 +168,8 @@ def _parse_wb(wb) -> tuple[dict, dict]:
         tienda = row[1]  # col B
         if tienda is None or str(tienda).strip() == "":
             continue
-        doc = row[2]  # col C → empresa (COD.COMP [1:4])
-        cc  = row[3]  # col D → cc (C.COSTO [67:71])
+        cc  = row[2]  # col C
+        doc = row[3]  # col D
         datos_tiendas[str(tienda).upper().strip()] = {
             "cc":  int(cc)  if cc  is not None else 0,
             "doc": int(doc) if doc is not None else 0,
@@ -197,13 +214,13 @@ def _cargar_con_gspread() -> tuple[dict, dict]:
         if not tienda or not str(tienda).strip():
             continue
         try:
-            doc = int(row[2]) if len(row) > 2 and row[2] else 0  # col C → empresa (COD.COMP [1:4])
-        except Exception:
-            doc = 0
-        try:
-            cc = int(row[3]) if len(row) > 3 and row[3] else 0   # col D → cc (C.COSTO [67:71])
+            cc = int(row[2]) if len(row) > 2 and row[2] else 0
         except Exception:
             cc = 0
+        try:
+            doc = int(row[3]) if len(row) > 3 and row[3] else 0
+        except Exception:
+            doc = 0
         datos_tiendas[str(tienda).upper().strip()] = {"cc": cc, "doc": doc}
 
     return invenarios, datos_tiendas
@@ -313,140 +330,120 @@ if uploaded_files:
         disabled=st.session_state.procesando,
     )
 
+
+def _extraer_iterativa(client, pdf_b64, nombre):
+    todos_items = []
+    header = None
+    iteracion = 0
+    hay_mas = True
+    
+    while hay_mas and iteracion < 10:
+        iteracion += 1
+        
+        if iteracion == 1:
+            prompt = '''Extrae de esta factura PDF:
+1. Header: numero_factura, fecha, fecha_vencimiento, fecha_pronto_pago (formato "HASTA EL DD-MM-YYYY" si existe), ciudad, direccion_entrega (dirección del DESTINATARIO Yamamotos, NO de Incolmotos), subtotal, iva_total
+2. Primeros 50 ítems. Por cada uno: referencia, descripcion, cantidad, valor_total (columna Valor Total ya con descuento aplicado — NO precio x cantidad), tiene_iva
+3. NUNCA fusiones ítems repetidos. Si la misma referencia aparece 3 veces, son 3 objetos distintos.
+
+Responde SOLO JSON sin markdown:
+{"header": {}, "items": [], "hay_mas_items": true/false}
+
+Si hay más de 50 ítems pon hay_mas_items: true. Si son 50 o menos, pon false.'''
+        else:
+            ultimos = todos_items[-3:] if len(todos_items) >= 3 else todos_items
+            ultima_ref = todos_items[-1].get('referencia', '') if todos_items else ''
+            prompt = f'''Misma factura. Ya extraje {len(todos_items)} ítems. Los últimos 3 fueron:
+{ultimos}
+
+Extrae los siguientes 50 ítems que aparecen DESPUÉS de la referencia "{ultima_ref}".
+NUNCA repitas ítems ya extraídos. NUNCA fusiones repetidos.
+valor_total = columna Valor Total ya descontada.
+
+Responde SOLO JSON sin markdown:
+{{"items": [], "hay_mas_items": true/false}}'''
+        
+        import streamlit as st
+        import json
+        
+        try:
+            resp = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=8192,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": pdf_b64}},
+                        {"type": "text", "text": prompt}
+                    ]
+                }]
+            )
+            raw = resp.content[0].text.strip()
+            data = json.loads(raw)
+        except Exception as e:
+            st.error(f"Error procesando página {iteracion} de {nombre}: {e}")
+            return None
+        
+        if iteracion == 1:
+            header = data.get('header', {})
+            if not header:
+                header = {}
+        
+        nuevos = data.get('items', [])
+        todos_items.extend(nuevos)
+        hay_mas = data.get('hay_mas_items', False)
+    
+    if hay_mas:
+        st.warning(f"⚠️ {nombre}: Factura muy grande. Se procesaron {len(todos_items)} ítems. Verifica que el total cuadre.")
+    
+    if not header:
+        header = {}
+    return {"header": header, "items": todos_items}
+
 if st.session_state.procesando and uploaded_files:
     facturas_extraidas = []
 
     with st.spinner("Procesando facturas, por favor espera..."):
         client = anthropic.Anthropic(api_key=api_key)
 
-        def _extraer_iterativa(client, pdf_b64, nombre):
-            """Extrae datos del PDF con llamadas iterativas de max 50 ítems cada una."""
-            import re as _re
-
-            _PROMPT_INICIAL = (
-                "Eres un extractor de datos de facturas de Incolmotos Colombia.\n"
-                "Extrae estos datos y responde SOLO con JSON válido, sin explicaciones ni markdown:\n"
-                "{\n"
-                "  \"header\": {\n"
-                "    \"numero_factura\": \"CPFE-XXXXXX (número completo con prefijo)\",\n"
-                "    \"fecha\": \"YYYY-MM-DD\",\n"
-                "    \"ciudad\": \"solo la primera palabra del campo Ciudad del encabezado, "
-                "ej: si dice NEIVA HUILA devuelve NEIVA\",\n"
-                "    \"direccion_entrega\": \"dirección del COMPRADOR (campo 'Dirección:' que aparece junto a 'Señores: YAMAMOTOS'), NO la dirección de Incolmotos/Girardota que es el emisor de la factura\",\n"
-                "    \"subtotal\": 0.0,\n"
-                "    \"iva_total\": 0.0,\n"
-                "    \"fecha_vto\": \"YYYYMMDD — buscar primero 'HASTA EL DD-MM-YYYY' "
-                "(convertir de DD-MM-YYYY a YYYYMMDD); si no existe usar campo Vencimiento del encabezado\"\n"
-                "  },\n"
-                "  \"items\": [\n"
-                "    {\n"
-                "      \"referencia\": \"exactamente como aparece en columna Referencia, sin espacios extra\",\n"
-                "      \"descripcion\": \"columna Producto, máximo 50 caracteres\",\n"
-                "      \"cantidad\": 1,\n"
-                "      \"valor_total\": 0.0,  (columna 'Valor Total' del PDF, ya con descuento aplicado — NO precio unitario × cantidad)\n"
-                "      \"tiene_iva\": true\n"
-                "    }\n"
-                "  ],\n"
-                "  \"hay_mas_items\": false\n"
-                "}\n\n"
-                "INSTRUCCIONES:\n"
-                "- Extrae los primeros 50 ítems de la factura.\n"
-                "- Si la factura tiene más de 50 ítems, extrae solo los primeros 50 y pon hay_mas_items: true.\n"
-                "- Si tiene 50 o menos ítems, extráelos todos y pon hay_mas_items: false.\n"
-                "- NUNCA fusiones ni combines ítems con la misma referencia; "
-                "cada fila del PDF es un objeto separado en el array.\n"
-                "- REGLA ABSOLUTA: el array items debe tener exactamente un objeto "
-                "por cada número de ítem visible en el PDF."
-            )
-
-            def _pdf_content(pdf_b64):
-                return {
-                    "type": "document",
-                    "source": {
-                        "type": "base64",
-                        "media_type": "application/pdf",
-                        "data": pdf_b64,
-                    },
-                }
-
-            def _llamar_haiku(client, pdf_b64, prompt_text):
-                return client.messages.create(
-                    model="claude-haiku-4-5-20251001",
-                    max_tokens=8192,
-                    messages=[{
-                        "role": "user",
-                        "content": [_pdf_content(pdf_b64), {"type": "text", "text": prompt_text}],
-                    }],
-                )
-
-            def _limpiar_json(raw):
-                raw = _re.sub(r"^```(?:json)?\s*\n?", "", raw.strip())
-                return _re.sub(r"\n?```\s*$", "", raw).strip()
-
-            # ── Llamada 1: header + primeros 50 ítems ──────────────────────
-            msg1 = _llamar_haiku(client, pdf_b64, _PROMPT_INICIAL)
-            raw1 = _limpiar_json(msg1.content[0].text)
-            try:
-                chunk1 = json.loads(raw1)
-            except json.JSONDecodeError:
-                st.error(f"Error procesando página 1 de {nombre}. Reintenta.")
-                return None
-
-            header       = chunk1.get("header", {})
-            todos_items  = list(chunk1.get("items", []))
-            hay_mas      = chunk1.get("hay_mas_items", False)
-
-            # ── Llamadas siguientes: 50 ítems por vez ──────────────────────
-            iteracion = 1
-            while hay_mas and iteracion < 10:
-                iteracion += 1
-                ultimos_3  = todos_items[-3:] if len(todos_items) >= 3 else todos_items
-                ultima_ref = ultimos_3[-1].get("referencia", "") if ultimos_3 else ""
-
-                prompt_cont = (
-                    "Esta es la misma factura. Ya extraje algunos ítems. Los últimos 3 que tengo son:\n"
-                    + json.dumps(ultimos_3, ensure_ascii=False, indent=2)
-                    + f"\n\nExtrae los siguientes 50 ítems que aparecen DESPUÉS de la "
-                    f"referencia \"{ultima_ref}\" en el PDF.\n"
-                    "Responde SOLO con JSON válido, sin explicaciones ni markdown:\n"
-                    "{\n"
-                    "  \"items\": [...],\n"
-                    "  \"hay_mas_items\": false\n"
-                    "}\n\n"
-                    "Si hay más ítems después de los 50 que extraigas, pon hay_mas_items: true.\n"
-                    "Si no hay más ítems, pon hay_mas_items: false.\n"
-                    "NUNCA fusiones ni combines ítems con la misma referencia; "
-                    "cada fila del PDF es un objeto separado."
-                )
-
-                msg_n = _llamar_haiku(client, pdf_b64, prompt_cont)
-                raw_n = _limpiar_json(msg_n.content[0].text)
-                try:
-                    chunk_n = json.loads(raw_n)
-                except json.JSONDecodeError:
-                    st.error(f"Error procesando página {iteracion} de {nombre}. Reintenta.")
-                    return None
-
-                nuevos     = chunk_n.get("items", [])
-                todos_items.extend(nuevos)
-                hay_mas    = chunk_n.get("hay_mas_items", False)
-
-            if hay_mas:
-                st.warning(
-                    f"⚠️ **{nombre}**: Factura muy grande — se procesaron {len(todos_items)} ítems. "
-                    "Verifica que el total cuadre antes de subir a Siigo."
-                )
-
-            return {
-                "numero_factura":    header.get("numero_factura", ""),
-                "fecha":             header.get("fecha", ""),
-                "ciudad":            header.get("ciudad", ""),
-                "direccion_entrega": header.get("direccion_entrega", ""),
-                "subtotal":          header.get("subtotal", 0.0),
-                "iva_total":         header.get("iva_total", 0.0),
-                "fecha_vto":         header.get("fecha_vto", ""),
-                "items":             todos_items,
-            }
+        prompt = (
+            "Eres un extractor de datos de facturas de Incolmotos Colombia. "
+            "Extrae exactamente estos campos y responde SOLO con JSON válido, "
+            "sin explicaciones, sin markdown, sin bloques de código:\n"
+            "{\n"
+            "  \"numero_factura\": \"CPFE-XXXXXX (número completo con prefijo)\",\n"
+            "  \"fecha\": \"YYYY-MM-DD\",\n"
+            "  \"ciudad\": \"solo la primera palabra del campo Ciudad del encabezado, "
+            "ejemplo: si dice NEIVA HUILA devuelve NEIVA, "
+            "si dice GIRARDOT CUNDINAMARCA devuelve GIRARDOT\",\n"
+            "  \"subtotal\": 0.0,\n"
+            "  \"iva_total\": 0.0,\n"
+            "  \"fecha_vto\": \"YYYYMMDD — buscar primero el texto 'HASTA EL DD-MM-YYYY' "
+            "(fecha pronto pago, convertir de DD-MM-YYYY a YYYYMMDD); "
+            "si no existe, usar el campo Vencimiento del encabezado (ya en formato YYYYMMDD)\",\n"
+            "  \"items\": [\n"
+            "    {\n"
+            "      \"referencia\": \"exactamente como aparece en columna Referencia, sin espacios extra\",\n"
+            "      \"descripcion\": \"columna Producto, texto completo sin truncar\",\n"
+            "      \"cantidad\": 1,\n"
+            "      \"valor_total\": 0.0,\n"
+            "      \"tiene_iva\": true\n"
+            "    }\n"
+            "  ]\n"
+            "}\n\n"
+            "INSTRUCCIÓN CRÍTICA: Esta factura puede tener múltiples páginas. "
+            "Debes extraer ABSOLUTAMENTE TODOS los ítems de TODAS las páginas "
+            "sin excepción. No pares hasta haber procesado el último ítem. "
+            "El array 'items' del JSON debe estar completo y el JSON debe "
+            "cerrarse correctamente con todas las llaves.\n\n"
+            "REGLA ABSOLUTA DE EXTRACCIÓN: El array 'items' debe tener "
+            "exactamente un objeto por cada número de ítem visible en el PDF. "
+            "Si la factura tiene ítems 1 al 54, el array debe tener 54 objetos. "
+            "Ejemplo: si la referencia X aparece en el ítem 2, en el ítem 15 y "
+            "en el ítem 45, debes crear TRES objetos separados en el array, "
+            "uno para cada número de ítem. NUNCA fusiones, combines ni omitas "
+            "objetos por similitud de referencia, descripción o precio."
+        )
 
         bar     = st.progress(0)
         status  = st.empty()
@@ -462,21 +459,20 @@ if st.session_state.procesando and uploaded_files:
                 continue
 
             try:
-                pdf_bytes = archivo.read()
-                pdf_b64   = base64.standard_b64encode(pdf_bytes).decode("utf-8")
-
-                datos = _extraer_iterativa(client, pdf_b64, archivo.name)
-                if datos is None:
-                    bar.progress(idx / total)
+                pdf_bytes  = archivo.read()
+                pdf_b64    = base64.standard_b64encode(pdf_bytes).decode("utf-8")
+                extracted = _extraer_iterativa(client, pdf_b64, archivo.name)
+                if not extracted:
                     continue
-
-                import re
-                pdf_snippet = ""
-
+                
+                datos = extracted["header"]
+                datos["items"] = extracted["items"]
+                
                 # Validación 1: conteo total de ítems vs estimado del PDF
                 n_extraidos = len(datos.get("items", []))
                 n_en_pdf = 0
                 try:
+                    import re
                     pdf_snippet = pdf_bytes.decode("latin-1", errors="ignore")
                     posibles = [
                         int(m) for m in re.findall(r"(?m)^\s*([1-9][0-9]{0,2})\s+[A-Z]", pdf_snippet)
@@ -492,36 +488,16 @@ if st.session_state.procesando and uploaded_files:
                         f"se extrajeron {n_extraidos}. El PRN puede estar incompleto. Verifica el "
                         f"archivo antes de subirlo a Siigo."
                     )
-
-                # Validación 2: detectar referencias deduplicadas en el JSON extraído
-                try:
-                    from collections import Counter
-                    refs_extraidas = Counter(
-                        str(it.get("referencia", "")).strip()
-                        for it in datos.get("items", [])
-                    )
-                    refs_duplicadas_omitidas = []
-                    for ref, cnt in refs_extraidas.items():
-                        if ref and len(ref) >= 4:
-                            cnt_pdf = pdf_snippet.count(ref)
-                            if cnt_pdf > cnt:
-                                refs_duplicadas_omitidas.append(
-                                    f"'{ref}' (en JSON: {cnt}×, en PDF: ~{cnt_pdf} menciones)"
-                                )
-                    if refs_duplicadas_omitidas:
-                        st.warning(
-                            f"⚠️ **{archivo.name}**: Posibles referencias deduplicadas — "
-                            "la IA puede haber fusionado ítems repetidos: "
-                            + ", ".join(refs_duplicadas_omitidas)
-                            + ". Verifica el PRN antes de subir a Siigo."
-                        )
-                except Exception:
-                    pass
-
+                
                 datos["_nombre_archivo"] = archivo.name
                 st.session_state.facturas_procesadas[archivo.name] = datos
                 facturas_extraidas.append(datos)
 
+            except json.JSONDecodeError:
+                st.error(
+                    f"Error procesando {archivo.name}: la IA no devolvió "
+                    "JSON válido. Intenta de nuevo."
+                )
             except Exception as e:
                 st.error(f"Error procesando {archivo.name}: {e}")
 
@@ -691,65 +667,29 @@ if prods_duplicados:
 
 # ─── PASO 4 + 5: GENERACIÓN Y DESCARGA PRN ───────────────────────────────────
 
-# Nota: BELALCÁZAR normaliza a BELALCAZAR (NFD + ascii ignore), no duplicar.
-_IBAGUE_PRINCIPAL_KEYWORDS = [
-    "CARRERA 5", "CRA 5", "CRR 5", "CR 5", "QUINTA", "20-39", "20 39",
-    "CARRERA QUINTA", "PRINCIPAL", "B 1 CARMEN",
-]
-_IBAGUE_SEXTA_KEYWORDS = [
-    "CARRERA 6", "CRA 6", "CRR 6", "CR 6", "BELALCAZAR",
-    "BRR BELALCAZAR", "SEXTA", "CARRERA SEXTA", "25-40", "25 40",
-]
-
-
-def _resolver_tienda_ibague(direccion: str) -> tuple:
-    """
-    Retorna (cc, doc) según la dirección de entrega para las dos tiendas de Ibagué.
-    Principal (Cra 5 / B1 Carmen): cc=14, doc=7  → empresa 007, CC 0014
-    Sexta     (Cra 6 / Belalcázar): cc=1,  doc=1  → empresa 001, CC 0001
-    Retorna (None, None) si no se puede determinar.
-    Evaluación: Principal primero, Sexta segundo, fallback a Sexta con warning.
-    """
-    dir_norm = (
-        unicodedata.normalize("NFD", str(direccion))
-        .encode("ascii", "ignore")
-        .decode("utf-8")
-        .upper()
-    )
-    for kw in _IBAGUE_PRINCIPAL_KEYWORDS:
-        if kw in dir_norm:
-            return 14, 7
-    for kw in _IBAGUE_SEXTA_KEYWORDS:
-        if kw in dir_norm:
-            return 1, 1
-    return None, None
-
-
 def generar_prn_lines(
     factura_data: dict,
     inv: dict,
     tiendas: dict,
 ) -> list[str]:
     ciudad = _normalizar_ciudad(factura_data["ciudad"])
-
+    
     if "IBAGU" in ciudad:
-        direccion = str(factura_data.get("direccion_entrega", ""))
-        cc, doc = _resolver_tienda_ibague(direccion)
-        if cc is None:
-            st.warning(
-                f"⚠️ No se pudo determinar la tienda de Ibagué automáticamente. "
-                f"Dirección detectada: {direccion or '(vacía)'}. "
-                "Por favor verifica el PRN antes de subir a Siigo."
-            )
-            cc, doc = 1, 1  # Fallback: Sexta (empresa 001, CC 0001)
-    elif ciudad not in tiendas:
+        direccion_entrega = factura_data.get("direccion_entrega", "")
+        cc, doc = _resolver_tienda_ibague(direccion_entrega)
+    else:
+        if ciudad not in tiendas:
+            raise ValueError(f"Ciudad '{ciudad}' no encontrada en Excel DATOS.")
+        cc  = tiendas[ciudad]["cc"]
+        doc = tiendas[ciudad]["doc"]
+        
+    if False:
         raise ValueError(
             f"Ciudad '{ciudad}' no encontrada en Excel DATOS. "
             f"Ciudades disponibles: {list(tiendas.keys())}"
         )
-    else:
-        cc  = tiendas[ciudad]["cc"]
-        doc = tiendas[ciudad]["doc"]
+
+
 
     num_doc = (
         factura_data["numero_factura"]
