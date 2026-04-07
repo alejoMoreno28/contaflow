@@ -511,6 +511,7 @@ Si terminaste envía los ítems y pon "hay_mas_items": false. Si siguen más pon
                 "numero_factura": data.get("numero_factura", ""),
                 "fecha": data.get("fecha", ""),
                 "ciudad": data.get("ciudad", ""),
+                "direccion_entrega": data.get("direccion_entrega", ""),
                 "subtotal": data.get("subtotal", 0.0),
                 "iva_total": data.get("iva_total", 0.0),
                 "fecha_vto": data.get("fecha_vto", "")
@@ -543,6 +544,8 @@ if st.session_state.procesando and uploaded_files:
             "  \"ciudad\": \"solo la primera palabra del campo Ciudad del encabezado, "
             "ejemplo: si dice NEIVA HUILA devuelve NEIVA, "
             "si dice GIRARDOT CUNDINAMARCA devuelve GIRARDOT\",\n"
+            "  \"direccion_entrega\": \"dirección de envío o sucursal destino tal como aparece "
+            "en el PDF (ej. CR 5 20 39)\",\n"
             "  \"subtotal\": 0.0,\n"
             "  \"iva_total\": 0.0,\n"
             "  \"fecha_vto\": \"YYYYMMDD — buscar primero el texto 'HASTA EL DD-MM-YYYY' "
