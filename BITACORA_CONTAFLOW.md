@@ -53,3 +53,16 @@ Verificado contra 9 escenarios. Solo tocó yamaha_app.py.
 ### 2026-04-06  Migración a Streamlit Community Cloud (Pendiente 2 completado)
 **Problema:** Railway pausó el contenedor principal al terminar la capa gratuita de USD  (Trial Ended).
 **Solución:** Se abandonó Railway de inmediato y se hizo el despliegue directo sobre Streamlit Community Cloud (100% gratis). Se reconstruyó el .env con TOML formatting (usando multi-line literals para el JSON service account key) y se actualizó yamaha_app.py para usar st.secrets como fallback a os.environ.
+
+---
+
+## 2026-04-07 — Estabilización profunda en Streamlit (JSON y Watchdog)
+**Problema 1:** Fallos de `Expecting value:` debido a que el modelo (Claude) ocasionalmente retornaba un bloque markdown en lugar de puro JSON, el cual el Cloud no procesaba amigablemente.
+**Solución 1:** Se configuró el `prompt` en un esquema JSON plano root-level estricto y se implementó un parser exhaustivo dentro de `_extraer_iterativa`.
+
+**Problema 2:** Caídas de Streamlit (`OSError: inotify instance limit reached`) durante el cargue pesado de PDFs.
+**Solución 2:** Se introdujo `.streamlit/config.toml` con `fileWatcherType = "none"`.
+
+**Problema 3:** El `Subtotal` y las métricas de pie quedaban en $0 al mostrarse y en el PRN.
+**Solución 3:** Reajuste del mapeo de extracción en `iteracion == 1` para que capturara las variables base (`numero_factura`, `subtotal`, `iva_total`, etc.) desde la raíz del objeto modificado (`data.get`) en vez de la subcarpeta deprecada `"header"`.
+**Estado:** ✅ Plataforma 100% estable; en producción. Los PRNs recogen los montos fieles de la factura y evitan el error de estado residual haciendo refresh (F5).
