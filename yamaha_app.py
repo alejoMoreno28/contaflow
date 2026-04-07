@@ -470,32 +470,28 @@ Si terminaste envía los ítems y pon "hay_mas_items": false. Si siguen más pon
             resp = client.messages.create(
                 model="claude-haiku-4-5-20251001",
                 max_tokens=8192,
-                messages=[{
-                    "role": "user",
-                    "content": [
-                        {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": pdf_b64}},
-                        {"type": "text", "text": prompt}
-                    ]
-                }]
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": pdf_b64}},
+                            {"type": "text", "text": prompt}
+                        ]
+                    },
+                    {
+                        "role": "assistant",
+                        "content": "{"
+                    }
+                ]
             )
-            raw = resp.content[0].text.strip()
+            # Como forzamos que inicie con '{', lo concatenamos al inicio de lo que el modelo escupa
+            raw = "{" + resp.content[0].text
             
-            # Limpiar posibles bloques de markdown si el bot los incluyó
-            if "```json" in raw:
-                raw = raw.split("```json")[-1]
-                if "```" in raw:
-                    raw = raw.split("```")[0]
-            elif "```" in raw:
-                # Si usa ``` pero no especifica json
-                raw = raw.split("```")[1]
-            else:
-                # Respaldo: asegurar que empiece con { y termine con }
-                start = raw.find("{")
-                end = raw.rfind("}")
-                if start != -1 and end != -1:
-                    raw = raw[start:end+1]
-                    
+            # Limpiar posible basura final (ej. si el modelo cierra con markdown)
             raw = raw.strip()
+            if raw.endswith("```"):
+                raw = raw[:-3].strip()
+                
             data = json.loads(raw)
         except json.JSONDecodeError as je:
             st.error(f"Error procesando página {iteracion} de {nombre}: {je}")
@@ -535,44 +531,38 @@ if st.session_state.procesando and uploaded_files:
         client = anthropic.Anthropic(api_key=api_key)
 
         prompt = (
-            "Eres un extractor de datos de facturas de Incolmotos Colombia. "
-            "Extrae exactamente estos campos y responde SOLO con JSON válido, "
-            "sin explicaciones, sin markdown, sin bloques de código:\n"
+            "<instructions>\n"
+            "Eres un extractor experto de datos de facturas de Incolmotos Colombia.\n"
+            "Tu única tarea es extraer datos del documento PDF adjunto y estructurarlos exactamente bajo el esquema JSON proveido.\n"
+            "</instructions>\n\n"
+            "<anti_hallucination_rules>\n"
+            "1. Extrae ÚNICAMENTE información que esté literalmente presente en el documento.\n"
+            "2. No infieras, no 'limpies', ni inventes ceros ni caracteres extra. Transcribe el texto EXACTAMENTE como se ve.\n"
+            "3. Las referencias de Yamaha generalmente tienen 10 o 12 caracteres. Extráelas literal, sin rellenar con ceros fantasmas.\n"
+            "4. La factura puede tener múltiples páginas. Extrae ABSOLUTAMENTE TODOS los ítems de TODAS las páginas.\n"
+            "5. Crea exactamente un objeto por cada número de ítem visible en el PDF. NUNCA fusiones ítems similares o repetidos.\n"
+            "</anti_hallucination_rules>\n\n"
+            "<schema_json>\n"
+            "Debes responder SOLO y EXCLUSIVAMENTE emitiendo código JSON puramente válido, sin formato markdown, sin intro ni outro.\n"
             "{\n"
             "  \"numero_factura\": \"CPFE-XXXXXX (número completo con prefijo)\",\n"
             "  \"fecha\": \"YYYY-MM-DD\",\n"
-            "  \"ciudad\": \"solo la primera palabra del campo Ciudad del encabezado, "
-            "ejemplo: si dice NEIVA HUILA devuelve NEIVA, "
-            "si dice GIRARDOT CUNDINAMARCA devuelve GIRARDOT\",\n"
-            "  \"direccion_entrega\": \"dirección de envío o sucursal destino tal como aparece "
-            "en el PDF (ej. CR 5 20 39)\",\n"
+            "  \"ciudad\": \"solo la primera palabra del campo Ciudad del encabezado, ejemplo: si dice NEIVA HUILA devuelve NEIVA, si dice GIRARDOT CUNDINAMARCA devuelve GIRARDOT\",\n"
+            "  \"direccion_entrega\": \"dirección de envío o sucursal destino tal como aparece en el PDF (ej. CR 5 20 39)\",\n"
             "  \"subtotal\": 0.0,\n"
             "  \"iva_total\": 0.0,\n"
-            "  \"fecha_vto\": \"YYYYMMDD — buscar primero el texto 'HASTA EL DD-MM-YYYY' "
-            "(fecha pronto pago, convertir de DD-MM-YYYY a YYYYMMDD); "
-            "si no existe, usar el campo Vencimiento del encabezado (ya en formato YYYYMMDD)\",\n"
+            "  \"fecha_vto\": \"YYYYMMDD — buscar primero el texto 'HASTA EL DD-MM-YYYY' (fecha pronto pago, convertir de DD-MM-YYYY a YYYYMMDD); si no existe, usar el campo Vencimiento del encabezado (ya en formato YYYYMMDD)\",\n"
             "  \"items\": [\n"
             "    {\n"
-            "      \"referencia\": \"exactamente como aparece en columna Referencia, sin espacios extra\",\n"
+            "      \"referencia\": \"literal de la columna Referencia, sin agregar caracteres ni ceros extra\",\n"
             "      \"descripcion\": \"columna Producto, texto completo sin truncar\",\n"
             "      \"cantidad\": 1,\n"
             "      \"valor_total\": 0.0,\n"
             "      \"tiene_iva\": true\n"
             "    }\n"
             "  ]\n"
-            "}\n\n"
-            "INSTRUCCIÓN CRÍTICA: Esta factura puede tener múltiples páginas. "
-            "Debes extraer ABSOLUTAMENTE TODOS los ítems de TODAS las páginas "
-            "sin excepción. No pares hasta haber procesado el último ítem. "
-            "El array 'items' del JSON debe estar completo y el JSON debe "
-            "cerrarse correctamente con todas las llaves.\n\n"
-            "REGLA ABSOLUTA DE EXTRACCIÓN: El array 'items' debe tener "
-            "exactamente un objeto por cada número de ítem visible en el PDF. "
-            "Si la factura tiene ítems 1 al 54, el array debe tener 54 objetos. "
-            "Ejemplo: si la referencia X aparece en el ítem 2, en el ítem 15 y "
-            "en el ítem 45, debes crear TRES objetos separados en el array, "
-            "uno para cada número de ítem. NUNCA fusiones, combines ni omitas "
-            "objetos por similitud de referencia, descripción o precio."
+            "}\n"
+            "</schema_json>"
         )
 
         bar     = st.progress(0)
@@ -842,7 +832,8 @@ def generar_prn_lines(
         valor: float,
         cantidad: float,
     ) -> str:
-        descripcion = str(descripcion).encode("latin-1", errors="replace").decode("latin-1")
+        import unicodedata
+        descripcion_limpia = unicodedata.normalize('NFKD', str(descripcion)).encode('ascii', 'ignore').decode('utf-8').upper()
         line = (
             "P"                                          # TIPO           1
             + str(doc).zfill(3)                          # COD.COMP       3
@@ -855,7 +846,7 @@ def generar_prn_lines(
             + fecha                                      # FECHA DOC      8
             + str(cc).zfill(4)                           # C.COSTO        4
             + "000"                                      # S.COSTO        3
-            + str(descripcion).ljust(50)[:50]            # DESCRIPCION   50
+            + str(descripcion_limpia).ljust(50)[:50]     # DESCRIPCION   50
             + deb_cred                                   # DEB.CRED       1
             + str(int(round(valor * 100))).zfill(15)     # VR.MOVIM      15
             + "000000000000000"                          # BASE RET      15
