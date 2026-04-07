@@ -406,8 +406,12 @@ Si terminaste envía los ítems y pon "hay_mas_items": false. Si siguen más pon
                     
             raw = raw.strip()
             data = json.loads(raw)
+        except json.JSONDecodeError as je:
+            st.error(f"Error procesando página {iteracion} de {nombre}: {je}")
+            st.error(f"**TEXTO ORIGINAL DEVUELTO POR LA IA:**\n\n{raw}")
+            return None
         except Exception as e:
-            st.error(f"Error procesando página {iteracion} de {nombre}: {e}")
+            st.error(f"Error procesando API en página {iteracion} de {nombre}: {e}")
             return None
         
         if iteracion == 1:
