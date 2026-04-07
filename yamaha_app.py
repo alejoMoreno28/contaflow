@@ -77,6 +77,12 @@ def _guardar_referencia_en_sheets(referencia: str, producto: str,
         SPREADSHEET_ID = "1JzKIDiMmjqVD-iYXTAjxk4wqPvdassNMZJjsNP_UtQI"
 
         creds_json = os.getenv("GOOGLE_SHEETS_CREDENTIALS")
+        if not creds_json:
+            try:
+                creds_json = st.secrets["GOOGLE_SHEETS_CREDENTIALS"]
+            except Exception:
+                pass
+
         if creds_json:
             creds_dict = _json.loads(creds_json)
             creds = Credentials.from_service_account_info(
@@ -142,6 +148,12 @@ st.markdown("""
 # ─── VALIDACIÓN API KEY ────────────────────────────────────────────────────────
 
 api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+if not api_key:
+    try:
+        api_key = st.secrets["ANTHROPIC_API_KEY"]
+    except Exception:
+        pass
+
 if not api_key:
     st.error("⚠️ Error de configuración del sistema. Contacta al administrador.")
     st.stop()
