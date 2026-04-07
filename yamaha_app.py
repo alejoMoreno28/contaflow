@@ -391,6 +391,23 @@ Responde SOLO JSON sin markdown:
                 }]
             )
             raw = resp.content[0].text.strip()
+            
+            # Limpiar posibles bloques de markdown si el bot los incluyó
+            if "```json" in raw:
+                raw = raw.split("```json")[-1]
+                if "```" in raw:
+                    raw = raw.split("```")[0]
+            elif "```" in raw:
+                # Si usa ``` pero no especifica json
+                raw = raw.split("```")[1]
+            else:
+                # Respaldo: asegurar que empiece con { y termine con }
+                start = raw.find("{")
+                end = raw.rfind("}")
+                if start != -1 and end != -1:
+                    raw = raw[start:end+1]
+                    
+            raw = raw.strip()
             data = json.loads(raw)
         except Exception as e:
             st.error(f"Error procesando página {iteracion} de {nombre}: {e}")
