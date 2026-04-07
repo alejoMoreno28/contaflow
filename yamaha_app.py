@@ -343,7 +343,7 @@ if uploaded_files:
     )
 
 
-def _extraer_iterativa(client, pdf_b64, nombre):
+def _extraer_iterativa(client, pdf_b64, nombre, base_prompt):
     todos_items = []
     header = None
     iteracion = 0
@@ -353,27 +353,24 @@ def _extraer_iterativa(client, pdf_b64, nombre):
         iteracion += 1
         
         if iteracion == 1:
-            prompt = '''Extrae de esta factura PDF:
-1. Header: numero_factura, fecha, fecha_vencimiento, fecha_pronto_pago (formato "HASTA EL DD-MM-YYYY" si existe), ciudad, direccion_entrega (dirección del DESTINATARIO Yamamotos, NO de Incolmotos), subtotal, iva_total
-2. Primeros 50 ítems. Por cada uno: referencia, descripcion, cantidad, valor_total (columna Valor Total ya con descuento aplicado — NO precio x cantidad), tiene_iva
-3. NUNCA fusiones ítems repetidos. Si la misma referencia aparece 3 veces, son 3 objetos distintos.
-
-Responde SOLO JSON sin markdown:
-{"header": {}, "items": [], "hay_mas_items": true/false}
-
-Si hay más de 50 ítems pon hay_mas_items: true. Si son 50 o menos, pon false.'''
+            prompt = f"{base_prompt}\n\nMUESTRA LOS PRIMEROS 50 ÍTEMS. Si hay más de 50 ítems, marca 'hay_mas_items: true'."
         else:
             ultimos = todos_items[-3:] if len(todos_items) >= 3 else todos_items
             ultima_ref = todos_items[-1].get('referencia', '') if todos_items else ''
-            prompt = f'''Misma factura. Ya extraje {len(todos_items)} ítems. Los últimos 3 fueron:
+            
+            prompt_continuacion = """Extrae SOLO el JSON válido. Usa el MISMO exacto formato JSON requerido anteriormente. 
+Misma factura. Ya extraje {len_items} ítems. Los últimos 3 fueron:
 {ultimos}
 
 Extrae los siguientes 50 ítems que aparecen DESPUÉS de la referencia "{ultima_ref}".
 NUNCA repitas ítems ya extraídos. NUNCA fusiones repetidos.
-valor_total = columna Valor Total ya descontada.
-
-Responde SOLO JSON sin markdown:
-{{"items": [], "hay_mas_items": true/false}}'''
+Si terminaste envía los ítems y pon "hay_mas_items": false. Si siguen más pon true.
+"""
+            prompt = prompt_continuacion.format(
+                len_items=len(todos_items),
+                ultimos=ultimos,
+                ultima_ref=ultima_ref
+            )
         
         import streamlit as st
         import json
@@ -490,7 +487,7 @@ if st.session_state.procesando and uploaded_files:
             try:
                 pdf_bytes  = archivo.read()
                 pdf_b64    = base64.standard_b64encode(pdf_bytes).decode("utf-8")
-                extracted = _extraer_iterativa(client, pdf_b64, archivo.name)
+                extracted = _extraer_iterativa(client, pdf_b64, archivo.name, prompt)
                 if not extracted:
                     continue
                 
