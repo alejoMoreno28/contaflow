@@ -415,9 +415,15 @@ Si terminaste envía los ítems y pon "hay_mas_items": false. Si siguen más pon
             return None
         
         if iteracion == 1:
-            header = data.get('header', {})
-            if not header:
-                header = {}
+            # We extract header fields from the root level as per the new flat prompt format
+            header = {
+                "numero_factura": data.get("numero_factura", ""),
+                "fecha": data.get("fecha", ""),
+                "ciudad": data.get("ciudad", ""),
+                "subtotal": data.get("subtotal", 0.0),
+                "iva_total": data.get("iva_total", 0.0),
+                "fecha_vto": data.get("fecha_vto", "")
+            }
         
         nuevos = data.get('items', [])
         todos_items.extend(nuevos)
