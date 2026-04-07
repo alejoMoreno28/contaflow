@@ -66,3 +66,15 @@ Verificado contra 9 escenarios. Solo tocó yamaha_app.py.
 **Problema 3:** El `Subtotal` y las métricas de pie quedaban en $0 al mostrarse y en el PRN.
 **Solución 3:** Reajuste del mapeo de extracción en `iteracion == 1` para que capturara las variables base (`numero_factura`, `subtotal`, `iva_total`, etc.) desde la raíz del objeto modificado (`data.get`) en vez de la subcarpeta deprecada `"header"`.
 **Estado:** ✅ Plataforma 100% estable; en producción. Los PRNs recogen los montos fieles de la factura y evitan el error de estado residual haciendo refresh (F5).
+
+---
+
+## 2026-04-07 — Reestructuración Frontend UI (Premium V2) y Hotfix Ibagué
+**Mejora UI:** Se rediseñó totalmente la plataforma dentro de Streamlit usando inyección de CSS Vanilla (`<style>`). 
+- **Cambios Estéticos:** Implementación de Modo Oscuro Corporativo (Yamaha Red & Black), glassmorphism en las métricas, bordes suavizados y botones modernos sin la barra lateral (Sidebar) vieja.
+- **Cambios UX:** Se implementó `st.tabs` para evitar el desplazamiento vertical infinito leyendo múltiples facturas. Se agregaron animaciones (balloons) cuando el PRN se descarga correctamente.
+
+**Bug Fix (Hotfix):** El enrutamiento de Ibagué (CC1 SEXTA vs CC7 PRINCIPAL) fallaba y caía por default a `P1 / CC1`.
+- **Causa Raíz:** Durante una optimización agresiva del prompt JSON esa mañana, se borró involuntariamente de la instrucción la orden de extraer el campo `"direccion_entrega"`. Al no tener la dirección exacta, la función matemática `_resolver_tienda_ibague` carecía del texto (`CR 5` / `CR 6`) para decidir.
+- **Solución:** Se reconstruyó el esquema en `yamaha_app.py` forzando de nuevo la extracción de `direccion_entrega` y se corrobora en pruebas exhaustivas locales simulando las direcciones de ambas sucursales.
+- **Estado:** ✅ Todo operativo; Streamlit Cloud Auto-sincronizado.
