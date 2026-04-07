@@ -122,25 +122,113 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-  /* Yamaha red accent */
-  .stButton > button[kind="primary"] {
-      background-color: #B71C1C !important;
-      color: white !important;
-      border: none !important;
+  /* Ocultar elementos nativos de Streamlit */
+  #MainMenu {visibility: hidden;}
+  footer {visibility: hidden;}
+  header {visibility: hidden;}
+  
+  /* Contenedores Principales */
+  .block-container {
+      padding-top: 2rem !important;
+      padding-bottom: 2rem !important;
+      max-width: 1200px !important;
   }
-  .btn-green > button {
-      background-color: #2E7D32 !important;
+  
+  /* Botones Primarios (Rojo Yamaha) */
+  .stButton > button[kind="primary"] {
+      background-color: #e02828 !important;
       color: white !important;
       border: none !important;
+      border-radius: 8px !important;
+      font-weight: 600 !important;
+      padding: 0.6rem 1.2rem !important;
+      transition: all 0.3s ease !important;
+      box-shadow: 0 4px 14px 0 rgba(224, 40, 40, 0.39) !important;
+  }
+  .stButton > button[kind="primary"]:hover {
+      transform: translateY(-2px) !important;
+      box-shadow: 0 6px 20px rgba(224, 40, 40, 0.5) !important;
+      background-color: #ff3333 !important;
+  }
+
+  /* Botones Secundarios */
+  .stButton > button[kind="secondary"] {
+      border-radius: 8px !important;
+      border: 1px solid #30363d !important;
+      background-color: #161b22 !important;
+      color: #c9d1d9 !important;
+      transition: all 0.2s ease !important;
+  }
+  .stButton > button[kind="secondary"]:hover {
+      border-color: #8b949e !important;
+      background-color: #21262d !important;
+  }
+
+  /* Botón de Éxito (Verde PRN) */
+  .btn-green > button {
+      background-color: #238636 !important;
+      color: white !important;
+      border: none !important;
+      border-radius: 8px !important;
       width: 100% !important;
       font-size: 1.1rem !important;
-      padding: 0.6rem !important;
+      font-weight: 600 !important;
+      padding: 0.8rem !important;
+      transition: all 0.3s ease !important;
+      box-shadow: 0 4px 14px 0 rgba(35, 134, 54, 0.39) !important;
   }
-  .ref-row {
-      background: #F5F5F5;
-      border-radius: 6px;
-      padding: 0.5rem;
-      margin-bottom: 0.3rem;
+  .btn-green > button:hover {
+      transform: translateY(-2px) !important;
+      background-color: #2ea043 !important;
+      box-shadow: 0 6px 20px rgba(35, 134, 54, 0.5) !important;
+  }
+
+  /* Cards para Métricas (Subtotal, IVA, Total) */
+  div[data-testid="metric-container"] {
+      background-color: #161b22;
+      border: 1px solid #30363d;
+      padding: 1.5rem;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      transition: transform 0.2s ease;
+  }
+  div[data-testid="metric-container"]:hover {
+      transform: translateY(-2px);
+      border-color: #8b949e;
+  }
+
+  /* Etiquetas de Métricas */
+  div[data-testid="stMetricLabel"] > div > div > p {
+      color: #8b949e !important;
+      font-size: 1rem !important;
+      font-weight: 500 !important;
+  }
+
+  /* Valores de Métricas */
+  div[data-testid="stMetricValue"] > div {
+      color: #f0f6fc !important;
+      font-weight: 700 !important;
+      font-size: 1.8rem !important;
+  }
+
+  /* Expanders (Facturas) */
+  .streamlit-expanderHeader {
+      background-color: #161b22;
+      border-radius: 8px !important;
+      border: 1px solid #30363d !important;
+      padding: 1rem !important;
+      font-weight: 600 !important;
+      color: #c9d1d9 !important;
+  }
+  div[data-testid="stExpander"] {
+      border: none !important;
+      background: transparent !important;
+  }
+
+  /* Dataframes / Tables */
+  div[data-testid="stDataFrame"] > div {
+      border-radius: 8px !important;
+      border: 1px solid #30363d !important;
   }
 </style>
 """, unsafe_allow_html=True)
@@ -275,45 +363,45 @@ if not invenarios:
     )
     st.stop()
 
-# ─── SIDEBAR ──────────────────────────────────────────────────────────────────
+# ─── TÍTULO Y CABECERA (Dashboard Top Bar) ──────────────────────────────────────
 
-with st.sidebar:
-    st.markdown("## 🏍️ ContaFlow Yamaha")
-    st.divider()
-    if _fuente == "gsheets":
-        st.success(f"✅ Catálogo Google Sheets")
-        st.caption(f"{len(invenarios):,} referencias cargadas")
-    else:
-        st.warning(f"⚠️ Base local (sin conexión)")
-        st.caption(f"{len(invenarios):,} referencias")
-    st.caption(f"{len(datos_tiendas)} tiendas configuradas")
-    st.divider()
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        st.error("⚠️ ANTHROPIC_API_KEY no configurada")
-    else:
-        st.success("✅ Sistema IA activo")
+st.title("ContaFlow Yamaha")
+st.markdown("##### Motor Inteligente de Generación PRN 🚀")
 
-# ─── TÍTULO ───────────────────────────────────────────────────────────────────
+# Contenedor de Estado del Sistema y Herramientas (En lugar del Sidebar)
+with st.container():
+    c1, c2, c3, c4 = st.columns([1.5, 1.5, 1.5, 1])
+    
+    with c1:
+        if _fuente == "gsheets":
+            st.success("🟢 Sincronizado (Google Sheets)")
+        else:
+            st.warning("🟠 Modo Offline (Local)")
+    with c2:
+        st.info(f"📦 {len(invenarios):,} referencias en memoria")
+    with c3:
+        if api_key:
+            st.success("🤖 Core IA: En línea")
+        else:
+            st.error("🔴 Error: Sin conexión IA")
+    with c4:
+        if st.button("🔄 Refrescar DB", type="secondary", use_container_width=True):
+            for k in ["invenarios", "excel_fuente"]:
+                st.session_state.pop(k, None)
+            st.rerun()
 
-st.title("ContaFlow Yamaha — Cargue Facturas CPFE")
-st.caption("Genera archivos .PRN para Siigo desde facturas de Incolmotos")
+st.divider()
 
-col_refresh, col_spacer = st.columns([1, 5])
-with col_refresh:
-    if st.button("🔄 Actualizar catálogo", type="secondary"):
-        for k in ["invenarios", "excel_fuente"]:
-            st.session_state.pop(k, None)
-        st.rerun()
+# ─── PASO 1: SUBIR FACTURAS (Dropzone) ────────────────────────────────────────
 
-# ─── PASO 2: SUBIR FACTURAS ───────────────────────────────────────────────────
-
-st.markdown("### 📄 Cargar facturas CPFE")
-st.caption("Sube uno o varios archivos PDF de facturas Incolmotos Yamaha (máx. 200 MB por archivo)")
+st.markdown("### 📥 Paso 1: Carga de Facturas CPFE")
+st.caption("Arrastra aquí los archivos PDF de Incolmotos Yamaha. Procesaremos todos en lote automáticamente.")
 
 uploaded_files = st.file_uploader(
-    "Sube las facturas CPFE (PDF)",
+    "Arrastra tus facturas en formato PDF aquí",
     type=["pdf"],
     accept_multiple_files=True,
+    label_visibility="collapsed"
 )
 
 if "facturas_procesadas" not in st.session_state:
@@ -324,22 +412,25 @@ def iniciar_proceso():
     st.session_state.procesando = True
 
 if uploaded_files:
+    st.markdown("<br>", unsafe_allow_html=True)
     # Avisar si alguna factura ya fue procesada en esta sesión
     ya_procesadas = [f.name for f in uploaded_files if f.name in st.session_state.facturas_procesadas]
     for nombre_ya in ya_procesadas:
-        col_w, col_b = st.columns([4, 1])
-        with col_w:
-            st.warning(f"⚠️ **{nombre_ya}** ya fue procesada en esta sesión. ¿Deseas procesarla de nuevo?")
-        with col_b:
-            if st.button("Sí, reprocesar", key=f"reprocess_{nombre_ya}"):
-                del st.session_state.facturas_procesadas[nombre_ya]
-                st.rerun()
+        with st.container():
+            col_w, col_b = st.columns([4, 1])
+            with col_w:
+                st.info(f"💡 **{nombre_ya}** fue procesada recientemente. El sistema cargará su resultado guardado para ahorrar tiempo.")
+            with col_b:
+                if st.button("🗑️ Vaciar memoria", key=f"reprocess_{nombre_ya}", use_container_width=True, help="Fuerza a la IA a leerla de nuevo."):
+                    del st.session_state.facturas_procesadas[nombre_ya]
+                    st.rerun()
 
     st.button(
-        "⚙️ Procesar facturas",
+        "🚀 Iniciar Procesamiento Inteligente",
         type="primary",
         on_click=iniciar_proceso,
         disabled=st.session_state.procesando,
+        use_container_width=True,
     )
 
 
@@ -554,7 +645,7 @@ if not facturas:
     st.stop()
 
 st.divider()
-st.subheader("📋 Validación de referencias")
+st.markdown("### 📊 Paso 2: Validación Visual")
 
 refs_faltantes = []
 for fac in facturas:
@@ -569,87 +660,76 @@ for fac in facturas:
 
 if refs_faltantes:
     import pandas as pd
-    # Deduplicar por referencia (primera descripción encontrada)
     refs_unicas: dict[str, str] = {}
     for r in refs_faltantes:
         if r["Referencia"] not in refs_unicas:
             refs_unicas[r["Referencia"]] = r.get("Descripción", "")
 
     n = len(refs_unicas)
-    st.warning(
-        f"📋 Se encontraron {n} referencia(s) nueva(s). "
-        "Ingresa el código Siigo para cada una y guarda."
-    )
-    st.dataframe(
-        pd.DataFrame(refs_faltantes),
-        use_container_width=True,
-        hide_index=True,
-    )
+    st.error(f"⚠️ Se detectaron **{n} referencia(s)** sin código contable asignado en memoria.", icon="🚨")
+    
+    with st.expander("Ver lista de items en conflicto cruzado", expanded=False):
+        st.dataframe(pd.DataFrame(refs_faltantes), use_container_width=True, hide_index=True)
 
+    st.markdown("##### 🛠️ Clasificador Manual:")
     codigos_ingresados = {}
-    for ref, desc in refs_unicas.items():
-        col1, col2, col3 = st.columns([2, 2, 2])
-        with col1:
-            st.markdown(f"**{ref}**  \n{desc}")
-        with col2:
-            codigo = st.text_input(
-                "Código producto Siigo",
-                key=f"cod_{ref}",
-                placeholder="Ej: 0020089001417"
-            )
-        with col3:
-            if codigo:
-                cta = _calcular_cta_inv(codigo)
-                st.markdown(f"**CTA-INV calculada:**  \n`{cta}`")
-                codigos_ingresados[ref] = {
-                    "producto":    codigo,
-                    "descripcion": desc,
-                    "cta_inv":     cta,
-                }
-            else:
-                st.markdown("*Ingresa el código para ver la cuenta*")
+    with st.container(border=True):
+        for ref, desc in refs_unicas.items():
+            col1, col2, col3 = st.columns([2, 1.5, 1.5])
+            with col1:
+                st.markdown(f"**Referencia:** `{ref}`  \n<small>{desc}</small>", unsafe_allow_html=True)
+            with col2:
+                codigo = st.text_input("Ingresa Cód. Producto Siigo", key=f"cod_{ref}", placeholder="Ej: 0020089...")
+            with col3:
+                if codigo:
+                    cta = _calcular_cta_inv(codigo)
+                    st.success(f"**CTA:** `{cta}`")
+                    codigos_ingresados[ref] = {"producto": codigo, "descripcion": desc, "cta_inv": cta}
+                else:
+                    st.caption("Esperando...")
 
     todos_completos = len(codigos_ingresados) == len(refs_unicas)
 
     if todos_completos:
-        if st.button("✅ Guardar en Google Sheets y continuar", use_container_width=True, type="primary"):
+        if st.button("✅ Confirmar y Guardar en Nube", use_container_width=True, type="primary"):
             exitos = 0
             for ref, datos in codigos_ingresados.items():
-                if _guardar_referencia_en_sheets(
-                    ref,
-                    datos["producto"],
-                    datos["descripcion"],
-                    datos["cta_inv"],
-                ):
+                if _guardar_referencia_en_sheets(ref, datos["producto"], datos["descripcion"], datos["cta_inv"]):
                     exitos += 1
             if exitos == len(codigos_ingresados):
-                st.success(
-                    f"✅ {exitos} referencias guardadas correctamente."
-                )
+                st.success(f"✅ {exitos} referencias inyectadas al cerebro maestro.")
                 for k in ["invenarios", "excel_fuente"]:
                     st.session_state.pop(k, None)
                 st.rerun()
             else:
-                st.error(
-                    "No se pudo guardar. Intenta de nuevo o contacta al administrador."
-                )
+                st.error("Fallo de red al persistir en nube.")
     else:
         faltantes_count = len(refs_unicas) - len(codigos_ingresados)
-        st.warning(f"Faltan {faltantes_count} código(s) por ingresar.")
+        st.warning(f"💡 Debes codificar {faltantes_count} ítem(s) más para continuar.")
 
     st.stop()
 
 # ── Todas las referencias existen — mostrar resumen por factura ────────────────
-
 import pandas as pd
+st.success("Toda la facturación cuadró perfectamente con el catálogo contable.", icon="✅")
 
-for fac in facturas:
-    num = fac.get("numero_factura", "?")
-    subtotal  = float(fac.get("subtotal",  0))
-    iva_total = float(fac.get("iva_total", 0))
-    total_fac = subtotal + iva_total
+tab_labels = [f"📄 {fac.get('numero_factura', '?')}" for fac in facturas]
+tabs = st.tabs(tab_labels)
 
-    with st.expander(f"📄 {num}", expanded=True):
+for fac, tab in zip(facturas, tabs):
+    with tab:
+        num = fac.get("numero_factura", "?")
+        subtotal  = float(fac.get("subtotal",  0))
+        iva_total = float(fac.get("iva_total", 0))
+        total_fac = subtotal + iva_total
+
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Subtotal P.",  f"${subtotal:,.0f}")
+        m2.metric("Impuestos (IVA)", f"${iva_total:,.0f}")
+        m3.metric("Coste TOTAL", f"${total_fac:,.0f}")
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
         filas = []
         for item in fac.get("items", []):
             ref  = str(item.get("referencia", "")).strip()
@@ -662,11 +742,6 @@ for fac in facturas:
                 "Valor Total": item.get("valor_total", 0),
             })
         st.dataframe(pd.DataFrame(filas), use_container_width=True, hide_index=True)
-
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Subtotal",  f"${subtotal:,.0f}")
-        m2.metric("IVA",       f"${iva_total:,.0f}")
-        m3.metric("TOTAL",     f"${total_fac:,.0f}")
 
 # ── Validar códigos producto duplicados dentro de cada factura ────────────────
 
@@ -854,20 +929,16 @@ def generar_prn_lines(
     return lines
 
 
-st.markdown("---")
-st.markdown("### ⬇️ Descargar archivos PRN")
+st.divider()
+st.markdown("### 🏁 Paso 3: Exportación a Siigo")
+st.caption("Asegúrate de haber validado visualmente los montos arriba antes de generar los enlaces.")
 
-if st.button("✅ Generar archivos PRN", type="primary", use_container_width=True):
+if st.button("🚀 Empaquetar y Generar Archivos PRN", type="primary", use_container_width=True):
     archivos_prn: list[tuple[str, bytes]] = []
     error_generacion = False
 
     for fac in facturas:
-        num = (
-            fac.get("numero_factura", "0")
-            .replace("CPFE-", "")
-            .replace("CPFE",  "")
-            .strip()
-        )
+        num = (fac.get("numero_factura", "0").replace("CPFE-", "").replace("CPFE",  "").strip())
         nombre = f"INT{num}.prn"
 
         try:
@@ -884,48 +955,47 @@ if st.button("✅ Generar archivos PRN", type="primary", use_container_width=Tru
             break
 
     if not error_generacion and archivos_prn:
-        if len(archivos_prn) == 1:
-            nombre, datos_prn = archivos_prn[0]
-            st.download_button(
-                label              = f"⬇️ Descargar {nombre}",
-                data               = datos_prn,
-                file_name          = nombre,
-                mime               = "application/octet-stream",
-                use_container_width=True,
-            )
-        else:
-            zip_buf = io.BytesIO()
-            with zipfile.ZipFile(zip_buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-                for nombre, datos_prn in archivos_prn:
-                    zf.writestr(nombre, datos_prn)
-            zip_buf.seek(0)
-            st.download_button(
-                label              = "⬇️ Descargar CPFE_facturas.zip",
-                data               = zip_buf,
-                file_name          = "CPFE_facturas.zip",
-                mime               = "application/zip",
-                use_container_width=True,
-            )
+        st.balloons()
+        st.success("🎉 ¡Conversión Exitosa! Tus archivos están listos para descargarse.")
+        
+        with st.container(border=True):
+            if len(archivos_prn) == 1:
+                nombre, datos_prn = archivos_prn[0]
+                st.download_button(
+                    label              = f"⬇️ Descargar contabilidad de {nombre}",
+                    data               = datos_prn,
+                    file_name          = nombre,
+                    mime               = "application/octet-stream",
+                    use_container_width=True,
+                )
+            else:
+                import io
+                import zipfile
+                zip_buf = io.BytesIO()
+                with zipfile.ZipFile(zip_buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+                    for nombre, datos_prn in archivos_prn:
+                        zf.writestr(nombre, datos_prn)
+                zip_buf.seek(0)
+                st.download_button(
+                    label              = "📦 ⬇️ Descargar Paquete ZIP (Múltiples Facturas)",
+                    data               = zip_buf,
+                    file_name          = "Lote_ContaFlow.zip",
+                    mime               = "application/zip",
+                    use_container_width=True,
+                )
 
-        # ── Tabla de verificación ──────────────────────────────────────────
-        st.subheader("✅ Verifica estos totales contra las facturas físicas")
+        # ── Tabla de verificación cruzada al final ──────────────────────────────────────────
+        st.markdown("<br>##### 🔎 Auditoría Cruzada Final", unsafe_allow_html=True)
         verificacion = []
         for fac in facturas:
             subtotal  = float(fac.get("subtotal",  0))
             iva_total = float(fac.get("iva_total", 0))
             verificacion.append({
-                "Factura":  fac.get("numero_factura", "?"),
-                "N° ítems": len(fac.get("items", [])),
+                "Nº de Factura":  fac.get("numero_factura", "?"),
+                "Items": len(fac.get("items", [])),
                 "Subtotal": f"${subtotal:,.0f}",
                 "IVA":      f"${iva_total:,.0f}",
-                "TOTAL":    f"${subtotal + iva_total:,.0f}",
+                "T. A PAGAR":    f"${subtotal + iva_total:,.0f}",
             })
-        st.dataframe(
-            pd.DataFrame(verificacion),
-            use_container_width=True,
-            hide_index=True,
-        )
-        st.caption(
-            "El TOTAL debe coincidir exactamente con el TOTAL A PAGAR "
-            "de cada factura PDF"
-        )
+        st.dataframe(pd.DataFrame(verificacion), use_container_width=True, hide_index=True)
+        st.caption("✔️ Verifica siempre que el T. A PAGAR coincida con el final del archivo PDF impreso.")
