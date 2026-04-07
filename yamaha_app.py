@@ -654,6 +654,24 @@ refs_faltantes = []
 for fac in facturas:
     for item in fac.get("items", []):
         ref = str(item.get("referencia", "")).strip()
+        
+        # [AUTO-CORRECCIÓN DE CEROS FANTASMAS (AI/OCR hallucinations)]
+        if ref and ref not in invenarios:
+            # A veces la IA agrega ceros de más al final ("5VV1764159000" en vez de "5VV176415900")
+            if ref.endswith("00") and ref[:-2] in invenarios:
+                ref = ref[:-2]
+                item["referencia"] = ref
+            elif ref.endswith("0") and ref[:-1] in invenarios:
+                ref = ref[:-1]
+                item["referencia"] = ref
+            # A veces la IA omite ceros al final
+            elif (ref + "0") in invenarios:
+                ref = ref + "0"
+                item["referencia"] = ref
+            elif (ref + "00") in invenarios:
+                ref = ref + "00"
+                item["referencia"] = ref
+
         if ref not in invenarios:
             refs_faltantes.append({
                 "Factura":     fac.get("numero_factura", "?"),
