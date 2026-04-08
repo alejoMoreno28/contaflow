@@ -447,11 +447,12 @@ def _extraer_iterativa(client, pdf_b64, nombre, base_prompt):
             prompt = f"{base_prompt}\n\nMUESTRA LOS PRIMEROS 50 ÍTEMS. Si hay más de 50 ítems, marca 'hay_mas_items: true'."
         else:
             ultimos = todos_items[-3:] if len(todos_items) >= 3 else todos_items
+            ultimos_str = json.dumps(ultimos, ensure_ascii=False)
             ultima_ref = todos_items[-1].get('referencia', '') if todos_items else ''
             
             prompt_continuacion = """Extrae SOLO el JSON válido. Usa el MISMO exacto formato JSON requerido anteriormente. 
 Misma factura. Ya extraje {len_items} ítems. Los últimos 3 fueron:
-{ultimos}
+{ultimos_str}
 
 Extrae los siguientes 50 ítems que aparecen DESPUÉS de la referencia "{ultima_ref}".
 NUNCA repitas ítems ya extraídos. NUNCA fusiones repetidos.
@@ -459,7 +460,7 @@ Si terminaste envía los ítems y pon "hay_mas_items": false. Si siguen más pon
 """
             prompt = prompt_continuacion.format(
                 len_items=len(todos_items),
-                ultimos=ultimos,
+                ultimos_str=ultimos_str,
                 ultima_ref=ultima_ref
             )
         
@@ -805,12 +806,6 @@ def generar_prn_lines(
         cc  = tiendas[ciudad]["cc"]
         doc = tiendas[ciudad]["doc"]
         
-    if False:
-        raise ValueError(
-            f"Ciudad '{ciudad}' no encontrada en Excel DATOS. "
-            f"Ciudades disponibles: {list(tiendas.keys())}"
-        )
-
 
 
     num_doc = (
