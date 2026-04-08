@@ -440,7 +440,7 @@ def _extraer_iterativa(client, pdf_b64, nombre, base_prompt):
     iteracion = 0
     hay_mas = True
     
-    while hay_mas and iteracion < 10:
+    while hay_mas and iteracion < 50:
         iteracion += 1
         
         if iteracion == 1:
@@ -463,9 +463,6 @@ Si terminaste envía los ítems y pon "hay_mas_items": false. Si siguen más pon
                 ultimos_str=ultimos_str,
                 ultima_ref=ultima_ref
             )
-        
-        import streamlit as st
-        import json
         
         try:
             resp = client.messages.create(
@@ -519,117 +516,143 @@ Si terminaste envía los ítems y pon "hay_mas_items": false. Si siguen más pon
         hay_mas = data.get('hay_mas_items', False)
     
     if hay_mas:
+        import streamlit as st
         st.warning(f"⚠️ {nombre}: Factura muy grande. Se procesaron {len(todos_items)} ítems. Verifica que el total cuadre.")
     
     if not header:
         header = {}
     return {"header": header, "items": todos_items}
 
+def _clean_float(val):
+    if isinstance(val, (int, float)):
+        return float(val)
+    if isinstance(val, str):
+        v = val.replace("$", "").replace(",", "").strip()
+        try:
+            return float(v)
+        except:
+            return 0.0
+    return 0.0
+
 if st.session_state.procesando and uploaded_files:
     facturas_extraidas = []
+    facturas_fallidas = []
 
     with st.spinner("Procesando facturas, por favor espera..."):
-        client = anthropic.Anthropic(api_key=api_key)
+        try:
+            client = anthropic.Anthropic(api_key=api_key)
 
-        prompt = (
-            "<instructions>\n"
-            "Eres un extractor experto de datos de facturas de Incolmotos Colombia.\n"
-            "Tu única tarea es extraer datos del documento PDF adjunto y estructurarlos exactamente bajo el esquema JSON proveido.\n"
-            "</instructions>\n\n"
-            "<anti_hallucination_rules>\n"
-            "1. Extrae ÚNICAMENTE información que esté literalmente presente en el documento.\n"
-            "2. No infieras, no 'limpies', ni inventes ceros ni caracteres extra. Transcribe el texto EXACTAMENTE como se ve.\n"
-            "3. Las referencias de Yamaha generalmente tienen 10 o 12 caracteres. Extráelas literal, sin rellenar con ceros fantasmas.\n"
-            "4. La factura puede tener múltiples páginas. Extrae ABSOLUTAMENTE TODOS los ítems de TODAS las páginas.\n"
-            "5. Crea exactamente un objeto por cada número de ítem visible en el PDF. NUNCA fusiones ítems similares o repetidos.\n"
-            "</anti_hallucination_rules>\n\n"
-            "<schema_json>\n"
-            "Debes responder SOLO y EXCLUSIVAMENTE emitiendo código JSON puramente válido, sin formato markdown, sin intro ni outro.\n"
-            "{\n"
-            "  \"numero_factura\": \"CPFE-XXXXXX (número completo con prefijo)\",\n"
-            "  \"fecha\": \"YYYY-MM-DD\",\n"
-            "  \"ciudad\": \"solo la primera palabra del campo Ciudad del encabezado, ejemplo: si dice NEIVA HUILA devuelve NEIVA, si dice GIRARDOT CUNDINAMARCA devuelve GIRARDOT\",\n"
-            "  \"direccion_entrega\": \"dirección de envío o sucursal destino tal como aparece en el PDF (ej. CR 5 20 39)\",\n"
-            "  \"subtotal\": 0.0,\n"
-            "  \"iva_total\": 0.0,\n"
-            "  \"fecha_vto\": \"YYYYMMDD — buscar primero el texto 'HASTA EL DD-MM-YYYY' (fecha pronto pago, convertir de DD-MM-YYYY a YYYYMMDD); si no existe, usar el campo Vencimiento del encabezado (ya en formato YYYYMMDD)\",\n"
-            "  \"items\": [\n"
-            "    {\n"
-            "      \"referencia\": \"literal de la columna Referencia, sin agregar caracteres ni ceros extra\",\n"
-            "      \"descripcion\": \"columna Producto, texto completo sin truncar\",\n"
-            "      \"cantidad\": 1,\n"
-            "      \"valor_total\": 0.0,\n"
-            "      \"tiene_iva\": true\n"
-            "    }\n"
-            "  ]\n"
-            "}\n"
-            "</schema_json>"
-        )
+            prompt = (
+                "<instructions>\n"
+                "Eres un extractor experto de datos de facturas de Incolmotos Colombia.\n"
+                "Tu única tarea es extraer datos del documento PDF adjunto y estructurarlos exactamente bajo el esquema JSON proveido.\n"
+                "</instructions>\n\n"
+                "<anti_hallucination_rules>\n"
+                "1. Extrae ÚNICAMENTE información que esté literalmente presente en el documento.\n"
+                "2. No infieras, no 'limpies', ni inventes ceros ni caracteres extra. Transcribe el texto EXACTAMENTE como se ve.\n"
+                "3. Las referencias de Yamaha generalmente tienen 10 o 12 caracteres. Extráelas literal, sin rellenar con ceros fantasmas.\n"
+                "4. La factura puede tener múltiples páginas. Extrae ABSOLUTAMENTE TODOS los ítems de TODAS las páginas.\n"
+                "5. Crea exactamente un objeto por cada número de ítem visible en el PDF. NUNCA fusiones ítems similares o repetidos.\n"
+                "</anti_hallucination_rules>\n\n"
+                "<schema_json>\n"
+                "Debes responder SOLO y EXCLUSIVAMENTE emitiendo código JSON puramente válido, sin formato markdown, sin intro ni outro.\n"
+                "{\n"
+                "  \"numero_factura\": \"CPFE-XXXXXX (número completo con prefijo)\",\n"
+                "  \"fecha\": \"YYYY-MM-DD\",\n"
+                "  \"ciudad\": \"solo la primera palabra del campo Ciudad del encabezado, ejemplo: si dice NEIVA HUILA devuelve NEIVA, si dice GIRARDOT CUNDINAMARCA devuelve GIRARDOT\",\n"
+                "  \"direccion_entrega\": \"dirección de envío o sucursal destino tal como aparece en el PDF (ej. CR 5 20 39)\",\n"
+                "  \"subtotal\": 0.0,\n"
+                "  \"iva_total\": 0.0,\n"
+                "  \"fecha_vto\": \"YYYYMMDD — buscar primero el texto 'HASTA EL DD-MM-YYYY' (fecha pronto pago, convertir de DD-MM-YYYY a YYYYMMDD); si no existe, usar el campo Vencimiento del encabezado (ya en formato YYYYMMDD)\",\n"
+                "  \"items\": [\n"
+                "    {\n"
+                "      \"referencia\": \"literal de la columna Referencia, sin agregar caracteres ni ceros extra\",\n"
+                "      \"descripcion\": \"columna Producto, texto completo sin truncar\",\n"
+                "      \"cantidad\": 1,\n"
+                "      \"valor_total\": 0.0,\n"
+                "      \"tiene_iva\": true\n"
+                "    }\n"
+                "  ]\n"
+                "}\n"
+                "</schema_json>"
+            )
 
-        bar     = st.progress(0)
-        status  = st.empty()
-        total   = len(uploaded_files)
+            bar     = st.progress(0)
+            status  = st.empty()
+            total   = len(uploaded_files)
 
-        for idx, archivo in enumerate(uploaded_files, 1):
-            status.markdown(f"🧠 Procesando **{idx}/{total}**: `{archivo.name}`...")
+            for idx, archivo in enumerate(uploaded_files, 1):
+                status.markdown(f"🧠 Procesando **{idx}/{total}**: `{archivo.name}`...")
 
-            # Cache: si ya fue procesada en esta sesión, reusar resultado
-            if archivo.name in st.session_state.facturas_procesadas:
-                facturas_extraidas.append(st.session_state.facturas_procesadas[archivo.name])
-                bar.progress(idx / total)
-                continue
-
-            try:
-                pdf_bytes  = archivo.read()
-                pdf_b64    = base64.standard_b64encode(pdf_bytes).decode("utf-8")
-                extracted = _extraer_iterativa(client, pdf_b64, archivo.name, prompt)
-                if not extracted:
+                # Cache: si ya fue procesada en esta sesión, reusar resultado
+                if archivo.name in st.session_state.facturas_procesadas:
+                    facturas_extraidas.append(st.session_state.facturas_procesadas[archivo.name])
+                    bar.progress(idx / total)
                     continue
-                
-                datos = extracted["header"]
-                datos["items"] = extracted["items"]
-                
-                # Validación 1: conteo total de ítems vs estimado del PDF
-                n_extraidos = len(datos.get("items", []))
-                n_en_pdf = 0
+
                 try:
-                    import re
-                    pdf_snippet = pdf_bytes.decode("latin-1", errors="ignore")
-                    posibles = [
-                        int(m) for m in re.findall(r"(?m)^\s*([1-9][0-9]{0,2})\s+[A-Z]", pdf_snippet)
-                        if int(m) <= 500
-                    ]
-                    if posibles:
-                        n_en_pdf = max(posibles)
-                except Exception:
-                    pass
-                if n_en_pdf > 0 and n_extraidos < n_en_pdf:
-                    st.warning(
-                        f"⚠️ Advertencia: El PDF tiene aproximadamente {n_en_pdf} ítems pero solo "
-                        f"se extrajeron {n_extraidos}. El PRN puede estar incompleto. Verifica el "
-                        f"archivo antes de subirlo a Siigo."
+                    pdf_bytes  = archivo.read()
+                    pdf_b64    = base64.standard_b64encode(pdf_bytes).decode("utf-8")
+                    extracted = _extraer_iterativa(client, pdf_b64, archivo.name, prompt)
+                    if not extracted:
+                        facturas_fallidas.append(archivo.name)
+                        continue
+                    
+                    datos = extracted["header"]
+                    datos["items"] = extracted["items"]
+                    
+                    # Validar numero_factura mayusculas
+                    if datos.get("numero_factura"):
+                        datos["numero_factura"] = str(datos["numero_factura"]).upper()
+                        
+                    # Clean floats
+                    datos["subtotal"] = _clean_float(datos.get("subtotal", 0.0))
+                    datos["iva_total"] = _clean_float(datos.get("iva_total", 0.0))
+                    for item in datos["items"]:
+                        item["valor_total"] = _clean_float(item.get("valor_total", 0.0))
+                        
+                    # Validate math (Subtotal vs Sum of items)
+                    suma_items = sum(item["valor_total"] for item in datos["items"])
+                    if abs(suma_items - datos["subtotal"]) > 10.0:
+                        st.warning(f"⚠️ {archivo.name}: Posible descuadre.\nSuma de Ítems = ${suma_items:,.2f} | Subtotal Extraído = ${datos['subtotal']:,.2f}")
+                    
+                    # Validation of fecha_vto
+                    fvto = str(datos.get("fecha_vto", "")).strip()
+                    if fvto and fvto.isdigit() and len(fvto) == 8:
+                        mes = int(fvto[4:6])
+                        dia = int(fvto[6:8])
+                        if not (1 <= mes <= 12 and 1 <= dia <= 31):
+                            datos["fecha_vto"] = "00000000"
+                    else:
+                        datos["fecha_vto"] = "00000000"
+                    
+                    datos["_nombre_archivo"] = archivo.name
+                    st.session_state.facturas_procesadas[archivo.name] = datos
+                    facturas_extraidas.append(datos)
+
+                except json.JSONDecodeError:
+                    facturas_fallidas.append(archivo.name)
+                    st.error(
+                        f"Error procesando {archivo.name}: la IA no devolvió "
+                        "JSON válido. Intenta de nuevo."
                     )
-                
-                datos["_nombre_archivo"] = archivo.name
-                st.session_state.facturas_procesadas[archivo.name] = datos
-                facturas_extraidas.append(datos)
+                except Exception as e:
+                    facturas_fallidas.append(archivo.name)
+                    st.error(f"Error procesando {archivo.name}: {e}")
 
-            except json.JSONDecodeError:
-                st.error(
-                    f"Error procesando {archivo.name}: la IA no devolvió "
-                    "JSON válido. Intenta de nuevo."
-                )
-            except Exception as e:
-                st.error(f"Error procesando {archivo.name}: {e}")
+                bar.progress(idx / total)
 
-            bar.progress(idx / total)
+        finally:
+            status.empty()
+            bar.empty()
+            st.session_state["facturas_extraidas"] = facturas_extraidas
+            st.session_state.procesando = False
 
-        status.empty()
-        bar.empty()
+    if facturas_fallidas:
+        st.error(f"❌ Fallaron {len(facturas_fallidas)} facturas: {', '.join(facturas_fallidas)}. Por favor reinténtalas.")
 
-    st.session_state["facturas_extraidas"] = facturas_extraidas
-    st.session_state.procesando = False
-    st.success(f"✅ {len(facturas_extraidas)} factura(s) procesada(s)")
+    if facturas_extraidas:
+        st.success(f"✅ {len(facturas_extraidas)} factura(s) procesada(s) correctamente")
 
 # ─── PASO 3: VALIDACIÓN ───────────────────────────────────────────────────────
 

@@ -140,7 +140,7 @@ def _extraer_iterativa(client, pdf_b64, base_prompt):
     iteracion = 0
     hay_mas = True
     
-    while hay_mas and iteracion < 10:
+    while hay_mas and iteracion < 50:
         iteracion += 1
         if iteracion == 1:
             prompt = f"{base_prompt}\n\nMUESTRA LOS PRIMEROS 50 ÍTEMS. Si hay más de 50 ítems, marca 'hay_mas_items: true'."
@@ -185,6 +185,17 @@ def _extraer_iterativa(client, pdf_b64, base_prompt):
         hay_mas = data.get('hay_mas_items', False)
         
     return {"header": header or {}, "items": todos_items}
+
+def _clean_float(val):
+    if isinstance(val, (int, float)):
+        return float(val)
+    if isinstance(val, str):
+        v = val.replace("$", "").replace(",", "").strip()
+        try:
+            return float(v)
+        except:
+            return 0.0
+    return 0.0
 
 # --- ENDPOINTS ---
 
@@ -241,10 +252,32 @@ async def extract_invoice(file: UploadFile = File(...)):
     
     extracted = _extraer_iterativa(client, pdf_b64, prompt)
     if not extracted:
-        raise HTTPException(status_code=500, detail="Fallo al extraer JSON de la IA")
+        raise HTTPException(status_code=500, detail="Fallo al extraer JSON de la IA (posible timeout)")
         
     datos = extracted["header"]
     datos["items"] = extracted["items"]
+    
+    if datos.get("numero_factura"):
+        datos["numero_factura"] = str(datos["numero_factura"]).upper()
+        
+    datos["subtotal"] = _clean_float(datos.get("subtotal", 0.0))
+    datos["iva_total"] = _clean_float(datos.get("iva_total", 0.0))
+    for item in datos["items"]:
+        item["valor_total"] = _clean_float(item.get("valor_total", 0.0))
+        
+    fvto = str(datos.get("fecha_vto", "")).strip()
+    if fvto and fvto.isdigit() and len(fvto) == 8:
+        mes = int(fvto[4:6])
+        dia = int(fvto[6:8])
+        if not (1 <= mes <= 12 and 1 <= dia <= 31):
+            datos["fecha_vto"] = "00000000"
+    else:
+        datos["fecha_vto"] = "00000000"
+        
+    suma_items = sum(item["valor_total"] for item in datos["items"])
+    descuadre_math = False
+    if abs(suma_items - datos["subtotal"]) > 10.0:
+        descuadre_math = True
     
     missing_refs = []
     
@@ -291,7 +324,8 @@ async def extract_invoice(file: UploadFile = File(...)):
         "status": "success",
         "factura": datos,
         "missing_refs": missing_refs,
-        "duplicados": prods_duplicados
+        "duplicados": prods_duplicados,
+        "descuadre_math": descuadre_math
     }
 
 class RefData(BaseModel):
