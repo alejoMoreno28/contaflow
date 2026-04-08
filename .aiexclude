@@ -1,0 +1,34 @@
+# Excluir del contexto de Gemini para evitar exceso de tokens
+# Ref: https://community.firebasestudio.dev/t/temporary-workaround-for-error-due-to-exceeding-input-token-count-unofficial/12457
+
+# Binarios y archivos pesados
+*.pdf
+*.xlsm
+*.docx
+*.png
+*.prn
+*.pyc
+
+# Archivos grandes de texto que no necesita Gemini
+package-lock.json
+index.html
+login.html
+
+# Secrets y credenciales
+credentials.json
+credentials.json.json
+token.json
+.env
+.env.bak
+.env.example
+
+# Directorios que no aportan contexto
+__pycache__/
+output/
+PRNS/
+ERROR 3/
+referencias-diseño/
+.claude/
+.git/
+.streamlit/
+contaflow-web/

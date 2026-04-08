@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(python3:*)",
+      "Bash(py:*)",
+      "Bash(git:*)",
+      "Bash(py -3 -m pip install \"gspread>=5.12.0\" -q)",
+      "Bash(py -3 -c \":*)",
+      "Bash(grep -v \"^$\")",
+      "Bash(findstr /v \"WARNING\\\\|Thread\\\\|scriptrunner\\\\|session_state\\\\|streamlit run\\\\|Streamlit\")",
+      "Bash(start cmd:*)",
+      "Bash(railway service:*)",
+      "Bash(railway variables:*)",
+      "Bash(railway variable:*)",
+      "Bash(railway run:*)",
+      "Bash(railway up:*)",
+      "Bash(railway logs:*)",
+      "Bash(railway --version)",
+      "Bash(railway status:*)",
+      "Bash(find /c/Users/PC/Desktop/contaflow -name *.pdf -o -name *.PDF)",
+      "Bash(du -sh c:/Users/PC/Desktop/contaflow/*)",
+      "Bash(rm -rf contaflow-web/node_modules)",
+      "Bash(rm -rf contaflow-web/.next)",
+      "Bash(du -sh */ .*)",
+      "Bash(du -sh referencias-diseño/*)",
+      "Bash(find c:/Users/PC/Desktop/contaflow -name *.json -o -name *.yaml -o -name *.yml -o -name *.toml -o -name *.cfg -o -name *.ini)",
+      "Bash(for f:*)",
+      "Bash(do py:*)",
+      "Bash(echo \"$f: OK\")",
+      "Bash(echo \"$f: SYNTAX ERROR\")",
+      "Bash(done)",
+      "WebSearch"
+    ]
+  }
+}

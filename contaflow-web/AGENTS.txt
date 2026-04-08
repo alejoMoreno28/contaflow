@@ -1,0 +1,51 @@
+# ContaFlow Web — Instrucciones del Agente
+
+## Contexto del proyecto
+ContaFlow es un SaaS colombiano de automatización contable para contadores.
+El código Python en la carpeta raíz (yamaha_app.py, app.py, etc.) es el 
+backend actual. Léelo para entender el contexto pero NUNCA lo modifiques.
+
+## Tu zona de trabajo
+SOLO puedes crear y modificar archivos dentro de /contaflow-web/
+Nunca toques archivos .py, .json o cualquier archivo fuera de esta carpeta.
+
+## Referencias de diseño
+- Imágenes de referencia en: ../referencias-diseño/
+- Documento maestro del producto: ../referencias-diseño/PLAN_MAESTRO_CONTAFLOW.docx
+- Sitio de competencia para estudiar lógica (NO copiar diseño): https://n1.app
+
+## Stack obligatorio
+- Next.js 14 con App Router
+- TypeScript
+- Tailwind CSS con colores custom
+- shadcn/ui para componentes
+- Framer Motion para animaciones
+- Lucide React para íconos
+- Fuente: Inter (Google Fonts)
+
+## Paleta de colores ContaFlow — Blanco y Morado Tech
+- Morado primario: #7C3AED
+- Morado hover/oscuro: #5B21B6
+- Morado claro (fondos/badges): #EDE9FE
+- Morado texto oscuro: #4C1D95
+- Fondo principal: #F8F7FF
+- Texto principal: #111827
+- Texto secundario: #6B7280
+- Blanco puro: #FFFFFF
+- Bordes: #E5E7EB
+
+## Reglas de diseño
+- Estilo moderno tech — inspirado en N1 pero completamente diferente visualmente
+- N1 usa azul plano y minimalista → ContaFlow usa morado con profundidad y gradientes
+- Usar glassmorphism con tonos morados en cards y hero
+- Animaciones con Framer Motion: fade-in, slide-up, typewriter en títulos
+- Layout asimétrico (no todo centrado como N1)
+- 100% responsive mobile-first
+- NO usar los mismos títulos que N1 — cambiar todo el copy
+
+## Reglas de código
+- Componentes en /components
+- Páginas en /app
+- Estilos globales en /app/globals.css
+- Siempre TypeScript estricto
+- Comentarios en español
