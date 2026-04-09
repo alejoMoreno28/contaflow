@@ -436,6 +436,7 @@ if uploaded_files:
 
 def _extraer_iterativa(client, pdf_b64, nombre, base_prompt):
     todos_items = []
+    seen_keys = set()
     header = None
     iteracion = 0
     hay_mas = True
@@ -512,7 +513,19 @@ Si terminaste envía los ítems y pon "hay_mas_items": false. Si siguen más pon
             }
         
         nuevos = data.get('items', [])
-        todos_items.extend(nuevos)
+
+        # Dedup: filtrar items que la IA repitio entre iteraciones
+        nuevos_unicos = []
+        for item in nuevos:
+            key = (str(item.get('referencia', '')).strip(), item.get('cantidad', 0), item.get('valor_total', 0))
+            if key not in seen_keys:
+                nuevos_unicos.append(item)
+                seen_keys.add(key)
+
+        if len(nuevos_unicos) < len(nuevos):
+            st.info(f"🔁 {nombre}: Se descartaron {len(nuevos) - len(nuevos_unicos)} items duplicados en iteracion {iteracion}.")
+
+        todos_items.extend(nuevos_unicos)
         hay_mas = data.get('hay_mas_items', False)
     
     if hay_mas:
@@ -611,10 +624,17 @@ if st.session_state.procesando and uploaded_files:
                     for item in datos["items"]:
                         item["valor_total"] = _clean_float(item.get("valor_total", 0.0))
                         
-                    # Validate math (Subtotal vs Sum of items)
+                    # Validate math (Subtotal vs Sum of items) — BLOQUEAR si no cuadra
                     suma_items = sum(item["valor_total"] for item in datos["items"])
                     if abs(suma_items - datos["subtotal"]) > 10.0:
-                        st.warning(f"⚠️ {archivo.name}: Posible descuadre.\nSuma de Ítems = ${suma_items:,.2f} | Subtotal Extraído = ${datos['subtotal']:,.2f}")
+                        st.error(
+                            f"🚫 {archivo.name}: DESCUADRE DETECTADO.\n"
+                            f"Suma de Items = ${suma_items:,.2f} | Subtotal PDF = ${datos['subtotal']:,.2f}\n"
+                            f"Diferencia: ${abs(suma_items - datos['subtotal']):,.2f}\n\n"
+                            f"El PRN NO se generara hasta corregir esto. Re-sube la factura."
+                        )
+                        facturas_fallidas.append(archivo.name)
+                        continue
                     
                     # Validation of fecha_vto
                     fvto = str(datos.get("fecha_vto", "")).strip()
