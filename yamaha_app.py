@@ -434,6 +434,116 @@ if uploaded_files:
     )
 
 
+def _extraer_con_pdfplumber(pdf_bytes: bytes, nombre: str):
+    """
+    Extractor determinístico de ítems usando pdfplumber.
+    No usa IA. Retorna mismo formato que _extraer_iterativa, o None si falla/descuadra.
+    """
+    import pdfplumber, io, re
+
+    # Artefactos de layout de Incolmotos que aparecen superpuestos en ciertas líneas
+    ARTIFACT_RE = re.compile(r'^(?:\d{6}-EFPC|\d{2}/\d{2}/\d{2})\s+')
+    ITEM_RE = re.compile(
+        r'^(\d+)\s+'            # número de ítem (grupo 1 — clave dedup)
+        r'(\S+)\s+'             # referencia (grupo 2)
+        r'(.+?)\s+'             # descripcion (grupo 3)
+        r'UNIDAD\s+'            # marcador obligatorio
+        r'([\d\.]+)\s+'         # cantidad (grupo 4)
+        r'[\d,\.]+\s+'          # precio_unitario (ignorado)
+        r'(?:[\d,\.]+\s+)?'     # descuento % (opcional, ignorado)
+        r'([\d,\.]+)$'          # valor_total (grupo 5)
+    )
+    SKIP_RE = re.compile(r'^\d+\s+(Pedido|Pag[i]?na|Son:|Pronto|Cant\.)')
+
+    try:
+        items = []
+        seen_item_nums = set()
+        header_text = ''
+
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            for page in pdf.pages:
+                words = page.extract_words(x_tolerance=3)
+                rows = {}
+                for w in words:
+                    y = int(w['top'])   # int() tolera ±0.1px entre label y valor numérico
+                    if y not in rows:
+                        rows[y] = []
+                    rows[y].append((w['x0'], w['text']))
+                for y in sorted(rows.keys()):
+                    line = ' '.join(t for _, t in sorted(rows[y]))
+                    header_text += line + '\n'
+                    clean = ARTIFACT_RE.sub('', line).strip()
+                    if not clean or not clean[0].isdigit():
+                        continue
+                    if SKIP_RE.match(clean):
+                        continue
+                    m = ITEM_RE.match(clean)
+                    if not m:
+                        continue
+                    item_num = m.group(1)
+                    if item_num in seen_item_nums:
+                        continue
+                    seen_item_nums.add(item_num)
+                    items.append({
+                        'referencia': m.group(2).strip(),
+                        'descripcion': m.group(3).strip(),
+                        'cantidad': float(m.group(4)),
+                        'valor_total': float(m.group(5).replace(',', '')),
+                        'tiene_iva': True,
+                    })
+
+        if not items:
+            return None
+
+        # Header fields
+        m = re.search(r'(CPFE-\d+)', header_text)
+        numero_factura = m.group(1) if m else ''
+
+        m = re.search(r'(\d{4}-\d{2}-\d{2})\s+\d{2}:\d{2}:\d{2}', header_text)
+        fecha = m.group(1) if m else ''
+
+        m = re.search(r'Ciudad:\s+([A-ZÁÉÍÓÚÑ]+)', header_text)
+        ciudad = m.group(1) if m else ''
+
+        m = re.search(r'Direcci[oó]n:\s+([^\n]+)', header_text)
+        direccion_entrega = m.group(1).strip() if m else ''
+
+        m = re.search(r'Bruto[\s\n]+([\d,\.]+)', header_text)
+        subtotal = float(m.group(1).replace(',', '')) if m else 0.0
+
+        m = re.search(r'\bIVA[\s\n]+([\d,\.]+)', header_text)
+        iva_total = float(m.group(1).replace(',', '')) if m else 0.0
+
+        m = re.search(r'HASTA EL (\d{2}-\d{2}-\d{4})', header_text)
+        if m:
+            d, mo, y_str = m.group(1).split('-')
+            fecha_vto = f'{y_str}{mo}{d}'
+        else:
+            m = re.search(r'Vencimiento:\s+(\d{4}-\d{2}-\d{2})', header_text)
+            fecha_vto = m.group(1).replace('-', '') if m else '00000000'
+
+        # Solo retornar si la suma cuadra con el subtotal
+        suma = sum(i['valor_total'] for i in items)
+        if subtotal > 0 and abs(suma - subtotal) > 10.0:
+            return None  # Descuadre — dejar que Claude maneje este PDF
+
+        return {
+            'header': {
+                'numero_factura': numero_factura,
+                'fecha': fecha,
+                'ciudad': ciudad,
+                'direccion_entrega': direccion_entrega,
+                'subtotal': subtotal,
+                'iva_total': iva_total,
+                'fecha_vto': fecha_vto,
+            },
+            'items': items,
+        }
+
+    except Exception:
+        return None  # Cualquier fallo → fallback a Claude
+
+
 def _extraer_iterativa(client, pdf_b64, nombre, base_prompt):
     todos_items = []
     seen_keys = set()
@@ -450,19 +560,21 @@ def _extraer_iterativa(client, pdf_b64, nombre, base_prompt):
             ultimos = todos_items[-3:] if len(todos_items) >= 3 else todos_items
             ultimos_str = json.dumps(ultimos, ensure_ascii=False)
             ultima_ref = todos_items[-1].get('referencia', '') if todos_items else ''
-            
-            prompt_continuacion = """Extrae SOLO el JSON válido. Usa el MISMO exacto formato JSON requerido anteriormente. 
-Misma factura. Ya extraje {len_items} ítems. Los últimos 3 fueron:
-{ultimos_str}
-
-Extrae los siguientes 50 ítems que aparecen DESPUÉS de la referencia "{ultima_ref}".
-NUNCA repitas ítems ya extraídos. NUNCA fusiones repetidos.
-Si terminaste envía los ítems y pon "hay_mas_items": false. Si siguen más pon true.
-"""
-            prompt = prompt_continuacion.format(
-                len_items=len(todos_items),
-                ultimos_str=ultimos_str,
-                ultima_ref=ultima_ref
+            subtotal_esp = float(header.get('subtotal', 0) or 0) if header else 0
+            suma_act = sum(float(item.get('valor_total', 0) or 0) for item in todos_items)
+            aviso_faltantes = (
+                f"ATENCIÓN: El subtotal de la factura es ${subtotal_esp:,.2f} pero solo he extraído "
+                f"${suma_act:,.2f}. Aún faltan ítems en el PDF — revisa TODAS las páginas.\n\n"
+                if subtotal_esp > 0 and (subtotal_esp - suma_act) > 10.0 else ""
+            )
+            prompt = (
+                f"Extrae SOLO el JSON válido. Usa el MISMO exacto formato JSON requerido anteriormente.\n"
+                f"Misma factura. Ya extraje {len(todos_items)} ítems. Los últimos 3 fueron:\n"
+                f"{ultimos_str}\n\n"
+                f"{aviso_faltantes}"
+                f"Extrae los siguientes 50 ítems que aparecen DESPUÉS de la referencia \"{ultima_ref}\".\n"
+                f"NUNCA repitas ítems ya extraídos. NUNCA fusiones repetidos.\n"
+                f"Si terminaste envía los ítems y pon \"hay_mas_items\": false. Si siguen más pon true."
             )
         
         try:
@@ -515,9 +627,15 @@ Si terminaste envía los ítems y pon "hay_mas_items": false. Si siguen más pon
         nuevos = data.get('items', [])
 
         # Dedup: filtrar items que la IA repitio entre iteraciones
+        # Clave incluye descripcion para no eliminar items legitimos con misma ref/precio
         nuevos_unicos = []
         for item in nuevos:
-            key = (str(item.get('referencia', '')).strip(), item.get('cantidad', 0), item.get('valor_total', 0))
+            key = (
+                str(item.get('referencia', '')).strip(),
+                str(item.get('descripcion', '')).strip()[:40],
+                item.get('cantidad', 0),
+                item.get('valor_total', 0)
+            )
             if key not in seen_keys:
                 nuevos_unicos.append(item)
                 seen_keys.add(key)
@@ -527,7 +645,19 @@ Si terminaste envía los ítems y pon "hay_mas_items": false. Si siguen más pon
 
         todos_items.extend(nuevos_unicos)
         hay_mas = data.get('hay_mas_items', False)
-    
+
+        # Recovery: Haiku dijo 'done' pero la suma no cuadra con el subtotal del PDF
+        if not hay_mas and header and todos_items:
+            subtotal_esperado = float(header.get('subtotal', 0) or 0)
+            suma_actual = sum(float(item.get('valor_total', 0) or 0) for item in todos_items)
+            if subtotal_esperado > 0 and (subtotal_esperado - suma_actual) > 10.0:
+                hay_mas = True
+                st.info(
+                    f"🔍 {nombre}: Haiku reportó fin pero hay ítems faltantes. "
+                    f"Subtotal PDF=${subtotal_esperado:,.0f} | Extraído=${suma_actual:,.0f} | "
+                    f"Faltan≈${subtotal_esperado - suma_actual:,.0f}. Continuando extracción..."
+                )
+
     if hay_mas:
         import streamlit as st
         st.warning(f"⚠️ {nombre}: Factura muy grande. Se procesaron {len(todos_items)} ítems. Verifica que el total cuadre.")
@@ -604,9 +734,17 @@ if st.session_state.procesando and uploaded_files:
                     continue
 
                 try:
-                    pdf_bytes  = archivo.read()
-                    pdf_b64    = base64.standard_b64encode(pdf_bytes).decode("utf-8")
-                    extracted = _extraer_iterativa(client, pdf_b64, archivo.name, prompt)
+                    pdf_bytes = archivo.read()
+
+                    # Intento 1: extractor determinístico (pdfplumber, sin IA)
+                    extracted = _extraer_con_pdfplumber(pdf_bytes, archivo.name)
+                    if extracted:
+                        st.info(f"⚡ {archivo.name}: Extracción determinística OK ({len(extracted['items'])} ítems).")
+                    else:
+                        # Intento 2: Claude Haiku (fallback para PDFs no estándar)
+                        pdf_b64 = base64.standard_b64encode(pdf_bytes).decode("utf-8")
+                        extracted = _extraer_iterativa(client, pdf_b64, archivo.name, prompt)
+
                     if not extracted:
                         facturas_fallidas.append(archivo.name)
                         continue
