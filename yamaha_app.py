@@ -659,7 +659,6 @@ def _extraer_iterativa(client, pdf_b64, nombre, base_prompt):
                 )
 
     if hay_mas:
-        import streamlit as st
         st.warning(f"⚠️ {nombre}: Factura muy grande. Se procesaron {len(todos_items)} ítems. Verifica que el total cuadre.")
     
     if not header:
