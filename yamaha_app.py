@@ -65,8 +65,7 @@ def _calcular_cta_inv(codigo_producto: str) -> str:
         return ""
 
 
-def _guardar_referencia_en_sheets(referencia: str, producto: str,
-                                   descripcion: str, cta_inv: str) -> bool:
+def _guardar_referencias_en_sheets_lote(referencias: list[tuple[str, dict]]) -> bool:
     try:
         import gspread
         from google.oauth2.service_account import Credentials
@@ -96,13 +95,15 @@ def _guardar_referencia_en_sheets(referencia: str, producto: str,
         gc = gspread.authorize(creds)
         ws = gc.open_by_key(SPREADSHEET_ID).worksheet("INVENARIOS")
         fecha = date.today().strftime("%Y-%m-%d")
-        ws.append_row(
-            ["", referencia, "'" + str(producto).strip(), descripcion, cta_inv, fecha, "", ""],
-            value_input_option="USER_ENTERED"
-        )
+        
+        filas = []
+        for ref, datos in referencias:
+            filas.append(["", ref, "'" + str(datos["producto"]).strip(), datos["descripcion"], datos["cta_inv"], fecha, "", ""])
+            
+        ws.append_rows(filas, value_input_option="USER_ENTERED")
         return True
     except Exception as e:
-        st.error(f"Error guardando en Google Sheets: {e}")
+        st.error(f"Error guardando en Google Sheets en lote: {e}")
         return False
 
 
@@ -884,12 +885,9 @@ if refs_faltantes:
 
     if todos_completos:
         if st.button("✅ Confirmar y Guardar en Nube", use_container_width=True, type="primary"):
-            exitos = 0
-            for ref, datos in codigos_ingresados.items():
-                if _guardar_referencia_en_sheets(ref, datos["producto"], datos["descripcion"], datos["cta_inv"]):
-                    exitos += 1
-            if exitos == len(codigos_ingresados):
-                st.success(f"✅ {exitos} referencias inyectadas al cerebro maestro.")
+            lista_referencias = list(codigos_ingresados.items())
+            if _guardar_referencias_en_sheets_lote(lista_referencias):
+                st.success(f"✅ {len(lista_referencias)} referencias inyectadas al cerebro maestro.")
                 for k in ["invenarios", "excel_fuente"]:
                     st.session_state.pop(k, None)
                 st.rerun()
