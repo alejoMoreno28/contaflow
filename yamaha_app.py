@@ -17,6 +17,13 @@ import openpyxl
 import streamlit as st
 from dotenv import load_dotenv
 
+from catalog_tools import (
+    CatalogUpdateError,
+    calcular_cta_inv as _calcular_cta_inv_catalogo,
+    normalize_product_code,
+    update_reference_product,
+)
+
 load_dotenv()
 
 
@@ -108,6 +115,117 @@ def _guardar_referencias_en_sheets_lote(referencias: list[tuple[str, dict]]) -> 
 
 
 # ─── CONFIGURACIÓN ────────────────────────────────────────────────────────────
+
+def _abrir_invenarios_para_correccion():
+    import gspread
+    from google.oauth2.service_account import Credentials
+    import json as _json
+
+    SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+    SPREADSHEET_ID = "1JzKIDiMmjqVD-iYXTAjxk4wqPvdassNMZJjsNP_UtQI"
+
+    creds_json = os.getenv("GOOGLE_SHEETS_CREDENTIALS")
+    if not creds_json:
+        try:
+            creds_json = st.secrets["GOOGLE_SHEETS_CREDENTIALS"]
+        except Exception:
+            pass
+
+    if creds_json:
+        creds = Credentials.from_service_account_info(
+            _json.loads(creds_json), scopes=SCOPES
+        )
+    else:
+        creds = Credentials.from_service_account_file(
+            "credentials.json", scopes=SCOPES
+        )
+
+    gc = gspread.authorize(creds)
+    return gc.open_by_key(SPREADSHEET_ID).worksheet("INVENARIOS")
+
+
+def _render_corregir_referencia_catalogo(invenarios: dict) -> None:
+    with st.expander("Corregir referencia existente en catalogo", expanded=False):
+        st.caption(
+            "Usa esta herramienta solo cuando una referencia Yamaha ya existe, "
+            "pero quedo amarrada al producto Siigo equivocado."
+        )
+
+        ref = st.text_input(
+            "Referencia Yamaha",
+            key="catalog_fix_ref",
+            placeholder="Ej: BBKH18001100",
+        ).strip()
+        nuevo_producto = st.text_input(
+            "Producto Siigo correcto",
+            key="catalog_fix_product",
+            placeholder="Ej: 0020077000625",
+        ).strip()
+
+        if ref:
+            actual = invenarios.get(ref)
+            if actual:
+                st.info(
+                    "Actual en memoria: "
+                    f"producto `{actual.get('producto', '')}` | "
+                    f"cuenta `{actual.get('cta_inv', '')}`"
+                )
+            else:
+                st.warning(
+                    "Esta referencia no aparece en la memoria cargada. "
+                    "La herramienta revisara Google Sheets antes de guardar."
+                )
+
+        producto_valido = False
+        if nuevo_producto:
+            try:
+                producto_limpio = normalize_product_code(nuevo_producto)
+                cta_preview = _calcular_cta_inv_catalogo(producto_limpio)
+                producto_valido = True
+                st.success(
+                    f"Nuevo producto valido: `{producto_limpio}` | "
+                    f"cuenta calculada: `{cta_preview}`"
+                )
+            except CatalogUpdateError as exc:
+                st.error(str(exc))
+
+        confirmar = st.checkbox(
+            "Confirmo que quiero modificar esta referencia en el catalogo maestro",
+            key="catalog_fix_confirm",
+        )
+
+        if st.button(
+            "Guardar correccion",
+            type="primary",
+            disabled=not (ref and producto_valido and confirmar),
+            key="catalog_fix_save",
+        ):
+            try:
+                ws = _abrir_invenarios_para_correccion()
+                result = update_reference_product(
+                    ws,
+                    referencia=ref,
+                    nuevo_producto=nuevo_producto,
+                )
+            except CatalogUpdateError as exc:
+                st.error(str(exc))
+            except Exception as exc:
+                st.error(f"No se pudo guardar la correccion en Google Sheets: {exc}")
+            else:
+                st.session_state["invenarios"][result.referencia] = {
+                    "producto": result.new_producto,
+                    "cta_inv": result.new_cta_inv,
+                }
+                st.success(
+                    "Referencia corregida: "
+                    f"`{result.referencia}` paso de producto "
+                    f"`{result.old_producto}` a `{result.new_producto}`."
+                )
+                st.caption(
+                    "La memoria de esta sesion ya quedo actualizada. "
+                    "Si otra persona tiene la app abierta, debe usar Refrescar DB."
+                )
+
 
 EXCEL_PATH     = Path("CARGUE FACTURAS DE COMPRA F3 ACT.xlsm")
 NIT_INCOLMOTOS = "890916911"
@@ -390,6 +508,8 @@ with st.container():
             for k in ["invenarios", "excel_fuente"]:
                 st.session_state.pop(k, None)
             st.rerun()
+
+_render_corregir_referencia_catalogo(invenarios)
 
 st.divider()
 

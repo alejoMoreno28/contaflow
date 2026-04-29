@@ -1,0 +1,118 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import date
+from typing import Sequence
+
+
+class CatalogUpdateError(ValueError):
+    """Raised when a catalog correction cannot be applied safely."""
+
+
+@dataclass(frozen=True)
+class CatalogRow:
+    row_number: int
+    referencia: str
+    producto: str
+    descripcion: str
+    cta_inv: str
+
+
+@dataclass(frozen=True)
+class CatalogUpdateResult:
+    row_number: int
+    referencia: str
+    old_producto: str
+    new_producto: str
+    old_cta_inv: str
+    new_cta_inv: str
+
+
+def clean_sheet_text(value: object) -> str:
+    return str(value).strip() if value is not None else ""
+
+
+def normalize_reference(value: object) -> str:
+    return clean_sheet_text(value)
+
+
+def normalize_product_code(value: object) -> str:
+    code = clean_sheet_text(value)
+    if code.startswith("'"):
+        code = code[1:].strip()
+    if not (len(code) == 13 and code.isdigit()):
+        raise CatalogUpdateError("El codigo producto debe tener exactamente 13 digitos.")
+    return code
+
+
+def calcular_cta_inv(codigo_producto: str) -> str:
+    try:
+        sufijo = str(int(codigo_producto[3:7])).zfill(2)
+        return "14350102" + sufijo
+    except Exception as exc:
+        raise CatalogUpdateError("No se pudo calcular la cuenta de inventario.") from exc
+
+
+def _row_value(row: Sequence[object], index: int) -> str:
+    return clean_sheet_text(row[index]) if len(row) > index else ""
+
+
+def find_reference_row(rows: Sequence[Sequence[object]], referencia: object) -> CatalogRow | None:
+    target = normalize_reference(referencia)
+    matches: list[CatalogRow] = []
+
+    for row_number, row in enumerate(rows, start=1):
+        row_ref = normalize_reference(_row_value(row, 1))
+        if row_ref != target:
+            continue
+        matches.append(
+            CatalogRow(
+                row_number=row_number,
+                referencia=row_ref,
+                producto=normalize_product_code(_row_value(row, 2)),
+                descripcion=_row_value(row, 3),
+                cta_inv=_row_value(row, 4),
+            )
+        )
+
+    if len(matches) > 1:
+        raise CatalogUpdateError(
+            f"La referencia {target} esta duplicada en el catalogo. Revisala manualmente."
+        )
+
+    return matches[0] if matches else None
+
+
+def update_reference_product(
+    worksheet,
+    *,
+    referencia: object,
+    nuevo_producto: object,
+    fecha: str | None = None,
+) -> CatalogUpdateResult:
+    ref = normalize_reference(referencia)
+    product_code = normalize_product_code(nuevo_producto)
+    new_cta_inv = calcular_cta_inv(product_code)
+    correction_date = fecha or date.today().strftime("%Y-%m-%d")
+
+    found = find_reference_row(worksheet.get_all_values(), ref)
+    if found is None:
+        raise CatalogUpdateError(f"La referencia {ref} no existe en el catalogo.")
+
+    worksheet.batch_update(
+        [
+            {"range": f"C{found.row_number}", "values": [[f"'{product_code}"]]},
+            {"range": f"E{found.row_number}", "values": [[new_cta_inv]]},
+            {"range": f"F{found.row_number}", "values": [[correction_date]]},
+        ],
+        value_input_option="USER_ENTERED",
+    )
+
+    return CatalogUpdateResult(
+        row_number=found.row_number,
+        referencia=found.referencia,
+        old_producto=found.producto,
+        new_producto=product_code,
+        old_cta_inv=found.cta_inv,
+        new_cta_inv=new_cta_inv,
+    )

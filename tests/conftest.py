@@ -1,8 +1,14 @@
-import pytest
+from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 @pytest.fixture(autouse=True)
-def mock_catalogo():
+def mock_catalogo(request):
+    if Path(str(request.fspath)).name != "test_api.py":
+        yield None
+        return
+
     with patch("main.get_catalogo") as mock_cat:
         # inv, tiendas
         mock_cat.return_value = (
