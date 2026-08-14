@@ -45,6 +45,7 @@ def test_normalize_product_code_rejects_non_13_digit_values():
 def test_calcular_cta_inv_uses_confirmed_siigo_rule():
     assert calcular_cta_inv("0020077000625") == "1435010277"
     assert calcular_cta_inv("0020077000628") == "1435010277"
+    assert calcular_cta_inv("0030001000122") == "1435020101"
 
 
 def test_find_reference_row_uses_column_b_after_header_rows():

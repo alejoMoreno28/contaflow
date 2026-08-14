@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Sequence
 
+from yamaha_rules import YamahaRuleError, calcular_cta_inv as _calcular_cta_inv
+
 
 class CatalogUpdateError(ValueError):
     """Raised when a catalog correction cannot be applied safely."""
@@ -47,9 +49,8 @@ def normalize_product_code(value: object) -> str:
 
 def calcular_cta_inv(codigo_producto: str) -> str:
     try:
-        sufijo = str(int(codigo_producto[3:7])).zfill(2)
-        return "14350102" + sufijo
-    except Exception as exc:
+        return _calcular_cta_inv(codigo_producto)
+    except YamahaRuleError as exc:
         raise CatalogUpdateError("No se pudo calcular la cuenta de inventario.") from exc
 
 
