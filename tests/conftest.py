@@ -12,7 +12,7 @@ def mock_catalogo(request):
     with patch("main.get_catalogo") as mock_cat:
         # inv, tiendas
         mock_cat.return_value = (
-            {"90793AQ82100": {"producto": "YAMALUBE", "cta_inv": "1435010210"}},
+            {"90793AQ82100": {"producto": "0020010000001", "cta_inv": "1435010210"}},
             {"GIRARDOT": {"cc": 95, "doc": 240}}
         )
         yield mock_cat

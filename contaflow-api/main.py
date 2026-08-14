@@ -15,6 +15,14 @@ import openpyxl
 from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 
+from yamaha_catalog import build_catalog_row, parse_inventory_rows
+from yamaha_prn import (
+    PrnValidationError,
+    build_accounting_plan,
+    generar_prn_lines,
+)
+from yamaha_rules import YamahaRuleError, calcular_cta_inv
+
 load_dotenv()
 
 app = FastAPI(title="ContaFlow API", version="1.0.0")
@@ -61,9 +69,8 @@ def _normalizar_ciudad(texto: str) -> str:
 
 def _calcular_cta_inv(codigo_producto: str) -> str:
     try:
-        sufijo = str(int(codigo_producto[3:7])).zfill(2)
-        return "14350102" + sufijo
-    except Exception:
+        return calcular_cta_inv(codigo_producto)
+    except YamahaRuleError:
         return ""
 
 def _cargar_con_gspread():
@@ -82,14 +89,10 @@ def _cargar_con_gspread():
     gc = gspread.authorize(creds)
     sp = gc.open_by_key(SPREADSHEET_ID)
 
-    inv, dt = {}, {}
-    for row in sp.worksheet("INVENARIOS").get_all_values()[2:]:
-        ref = row[1] if len(row) > 1 else ""
-        if not ref or not str(ref).strip(): continue
-        inv[str(ref).strip()] = {
-            "producto": str(row[2]).strip() if len(row) > 2 else "",
-            "cta_inv":  str(row[4]).strip() if len(row) > 4 else "",
-        }
+    inv = parse_inventory_rows(
+        sp.worksheet("INVENARIOS").get_all_values()[2:]
+    )
+    dt = {}
 
     for row in sp.worksheet("DATOS").get_all_values()[1:]:
         tienda = row[1] if len(row) > 1 else ""
@@ -103,13 +106,10 @@ def _cargar_con_gspread():
     return inv, dt
 
 def _parse_wb(wb):
-    inv, dt = {}, {}
-    for row in wb["INVENARIOS"].iter_rows(min_row=3, values_only=True):
-        if row[1] and str(row[1]).strip():
-            inv[str(row[1]).strip()] = {
-                "producto": str(row[2]).strip() if row[2] else "",
-                "cta_inv":  str(row[4]).strip() if row[4] else "",
-            }
+    inv = parse_inventory_rows(
+        wb["INVENARIOS"].iter_rows(min_row=3, values_only=True)
+    )
+    dt = {}
     for row in wb["DATOS"].iter_rows(min_row=2, values_only=True):
         if row[1] and str(row[1]).strip():
             dt[str(row[1]).upper().strip()] = {
@@ -320,48 +320,123 @@ async def extract_invoice(file: UploadFile = File(...)):
         else:
             vistos[prod] = ref
 
+    accounting_preview = None
+    accounting_error = None
+    if not missing_refs and not prods_duplicados and not descuadre_math:
+        try:
+            plan = build_accounting_plan(datos, inv)
+            accounting_preview = {
+                "capitalized_vat": float(plan.capitalized_vat),
+                "deductible_vat": float(plan.deductible_vat),
+                "total_payable": float(plan.credit_total),
+                "items": [
+                    {
+                        "referencia": movement.reference,
+                        "cuenta": movement.account,
+                        "tratamiento_iva": movement.treatment,
+                        "base": float(movement.base),
+                        "iva_mayor_costo": float(movement.capitalized_vat),
+                        "costo_inventario": float(movement.amount),
+                    }
+                    for movement in plan.item_movements
+                ],
+            }
+        except PrnValidationError as exc:
+            accounting_error = str(exc)
+
     return {
         "status": "success",
         "factura": datos,
         "missing_refs": missing_refs,
         "duplicados": prods_duplicados,
-        "descuadre_math": descuadre_math
+        "descuadre_math": descuadre_math,
+        "accounting_preview": accounting_preview,
+        "accounting_error": accounting_error,
     }
 
 class RefData(BaseModel):
     referencia: str
     producto: str
     descripcion: str
-    cta_inv: str
+    tratamiento_iva: Optional[str] = ""
+    cta_inv: Optional[str] = None
+
+
+def _open_inventory_worksheet():
+    import gspread
+    from google.oauth2.service_account import Credentials
+
+    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+    spreadsheet_id = "1JzKIDiMmjqVD-iYXTAjxk4wqPvdassNMZJjsNP_UtQI"
+    creds_json = os.environ.get("GOOGLE_SHEETS_CREDENTIALS")
+    if creds_json:
+        creds = Credentials.from_service_account_info(
+            json.loads(creds_json),
+            scopes=scopes,
+        )
+    else:
+        creds = Credentials.from_service_account_file(
+            Path(__file__).parent.parent / "credentials.json",
+            scopes=scopes,
+        )
+    return gspread.authorize(creds).open_by_key(spreadsheet_id).worksheet("INVENARIOS")
 
 @app.post("/api/add-reference")
 def add_reference(refs: List[RefData]):
-    import gspread
-    from google.oauth2.service_account import Credentials
     from datetime import date
-    
-    SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
-    SPREADSHEET_ID = "1JzKIDiMmjqVD-iYXTAjxk4wqPvdassNMZJjsNP_UtQI"
-    creds_json = os.environ.get("GOOGLE_SHEETS_CREDENTIALS")
-    if creds_json:
-        creds = Credentials.from_service_account_info(json.loads(creds_json), scopes=SCOPES)
-    else:
-        creds = Credentials.from_service_account_file(Path(__file__).parent.parent / "credentials.json", scopes=SCOPES)
-
-    gc = gspread.authorize(creds)
-    ws = gc.open_by_key(SPREADSHEET_ID).worksheet("INVENARIOS")
     fecha = date.today().strftime("%Y-%m-%d")
-    
+    try:
+        rows = [
+            build_catalog_row(
+                ref.referencia,
+                ref.producto,
+                ref.descripcion,
+                ref.tratamiento_iva,
+                creation_date=fecha,
+            )
+            for ref in refs
+        ]
+    except YamahaRuleError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    ws = _open_inventory_worksheet()
+    existing_refs = {
+        str(row[1]).strip()
+        for row in ws.get_all_values()[2:]
+        if len(row) > 1 and str(row[1]).strip()
+    }
+    duplicates = [row[1] for row in rows if row[1] in existing_refs]
+    if duplicates:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Referencias ya existentes: {', '.join(duplicates)}",
+        )
+
+    ws.append_rows(rows, value_input_option="USER_ENTERED")
+
     global CACHE_INVENARIOS
-    
-    for r in refs:
-        ws.append_row(["", r.referencia, f"'{r.producto.strip()}", r.descripcion, r.cta_inv, fecha, "", ""], value_input_option="USER_ENTERED")
-        CACHE_INVENARIOS[r.referencia] = {
-            "producto": r.producto.strip(),
-            "cta_inv": r.cta_inv.strip()
+    for row in rows:
+        CACHE_INVENARIOS[row[1]] = {
+            "producto": row[2].lstrip("'"),
+            "descripcion": row[3],
+            "cta_inv": row[4],
+            "linea": row[6],
+            "grupo": row[7],
+            "tratamiento_iva": row[8],
         }
-        
-    return {"status": "success"}
+
+    return {
+        "status": "success",
+        "references": [
+            {
+                "referencia": row[1],
+                "producto": row[2].lstrip("'"),
+                "cta_inv": row[4],
+                "tratamiento_iva": row[8],
+            }
+            for row in rows
+        ],
+    }
 
 class FacturaRequest(BaseModel):
     facturas: List[Dict[str, Any]]
@@ -370,61 +445,17 @@ class FacturaRequest(BaseModel):
 def generate_prn(data: FacturaRequest):
     inv, tiendas = get_catalogo()
     archivos_prn = []
-    
     for fac in data.facturas:
-        ciudad = _normalizar_ciudad(fac.get("ciudad", ""))
-        if "IBAGU" in ciudad:
-            cc, doc = _resolver_tienda_ibague(fac.get("direccion_entrega", ""))
-        else:
-            if ciudad not in tiendas:
-                raise HTTPException(status_code=400, detail=f"Ciudad '{ciudad}' no registrada.")
-            cc = tiendas[ciudad]["cc"]
-            doc = tiendas[ciudad]["doc"]
-            
-        num_doc = fac.get("numero_factura", "").replace("CPFE-", "").replace("CPFE",  "").strip()
-        fecha = fac.get("fecha", "").replace("-", "")
-        _fvto = str(fac.get("fecha_vto", "")).strip()
-        fecha_vto = _fvto if (_fvto.isdigit() and len(_fvto) == 8) else "00000000"
-
-        lines = []
-        sec = 1
-        
-        def fmt_line(s, cuenta, prd, desc, d_c, val, cant):
-            desc_lin = unicodedata.normalize('NFKD', str(desc)).encode('ascii', 'ignore').decode('utf-8').upper()
-            line = (
-                "P" + str(doc).zfill(3) + num_doc.zfill(11) + str(s).zfill(5) + 
-                NIT_INCOLMOTOS.zfill(13) + "000" + str(cuenta).ljust(10)[:10] + 
-                str(prd).ljust(13)[:13] + fecha + str(cc).zfill(4) + "000" + 
-                str(desc_lin).ljust(50)[:50] + d_c + str(int(round(float(val) * 100))).zfill(15) + 
-                "000000000000000" + "0000" + "0000" + "000" + str(cc).zfill(4) + 
-                "000" + str(int(round(float(cant) * 100000))).zfill(15) + " " + 
-                "000" + "00000000000" + "000" + "00000000" + "0000" + "00"
-            )
-            if len(line) != 220: raise ValueError(f"Error PRN size: {len(line)}")
-            return line
-
-        for item in fac.get("items", []):
-            ref = str(item["referencia"]).strip()
-            look = inv.get(ref)
-            if not look: raise HTTPException(status_code=400, detail=f"Ref {ref} sin cta_inv")
-            lines.append(fmt_line(sec, look["cta_inv"], look["producto"], item.get("descripcion", ""), "D", item.get("valor_total", 0), item.get("cantidad", 1)))
-            sec += 1
-
-        total_fac = float(fac.get("subtotal", 0)) + float(fac.get("iva_total", 0))
-        lines.append(
-            "P" + str(doc).zfill(3) + num_doc.zfill(11) + str(sec).zfill(5) + 
-            NIT_INCOLMOTOS.zfill(13) + "000" + "2205010000" + "0000000000000" + 
-            fecha + str(cc).zfill(4) + "000" + "INCOLMOTOS SAS".ljust(50)[:50] + 
-            "C" + str(int(round(total_fac * 100))).zfill(15) + "000000000000000" + 
-            "0000" + "0000" + "000" + str(cc).zfill(4) + "000" + "000000000000000" + 
-            "P" + str(doc).zfill(3) + num_doc.zfill(11) + "001" + fecha_vto + "0000" + "00"
+        try:
+            lines = generar_prn_lines(fac, inv, tiendas)
+        except PrnValidationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        num_doc = (
+            str(fac.get("numero_factura", ""))
+            .replace("CPFE-", "")
+            .replace("CPFE", "")
+            .strip()
         )
-        sec += 1
-
-        iva = float(fac.get("iva_total", 0))
-        if iva > 0:
-            lines.append(fmt_line(sec, "2408020100", "0000000000000", "INCOLMOTOS SAS", "D", iva, 1))
-
         content = "\r\n".join(lines) + "\r\n"
         archivos_prn.append((f"INT{num_doc}.prn", content.encode("latin-1", errors="replace")))
 

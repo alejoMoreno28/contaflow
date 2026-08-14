@@ -3,6 +3,44 @@
 import { useState } from 'react'
 import { UploadCloud, FileType, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react'
 
+const IVA_MAYOR_COSTO = 'IVA_MAYOR_COSTO'
+const DESCONTABLE = 'DESCONTABLE'
+
+type AccountingPreview = {
+  capitalized_vat: number
+  deductible_vat: number
+}
+
+type Invoice = {
+  numero_factura: string
+  subtotal: number | string
+  iva_total: number | string
+  items?: Array<Record<string, unknown>>
+  _accountingPreview?: AccountingPreview | null
+  [key: string]: unknown
+}
+
+type ReferenceIssue = {
+  referencia: string
+  descripcion: string
+  codigo_producto?: string
+}
+
+type ExtractResponse = {
+  factura: Invoice
+  accounting_preview?: AccountingPreview | null
+  accounting_error?: string | null
+  missing_refs?: ReferenceIssue[]
+  duplicados?: ReferenceIssue[]
+}
+
+function isOilProduct(code: string) {
+  const normalized = code.trim()
+  return /^\d{13}$/.test(normalized)
+    && normalized.slice(0, 3) === '003'
+    && normalized.slice(3, 7) === '0001'
+}
+
 // Utilidad para descargar archivos desde memoria
 function downloadBlob(blob: Blob, filename: string) {
   const url = window.URL.createObjectURL(blob)
@@ -18,11 +56,13 @@ function downloadBlob(blob: Blob, filename: string) {
 export default function RepuestosPage() {
   const [files, setFiles] = useState<File[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
-  const [facturas, setFacturas] = useState<any[]>([])
-  const [missingRefs, setMissingRefs] = useState<any[]>([])
-  const [duplicateRefs, setDuplicateRefs] = useState<any[]>([])
+  const [facturas, setFacturas] = useState<Invoice[]>([])
+  const [missingRefs, setMissingRefs] = useState<ReferenceIssue[]>([])
+  const [duplicateRefs, setDuplicateRefs] = useState<ReferenceIssue[]>([])
+  const [accountingErrors, setAccountingErrors] = useState<string[]>([])
   
   const [customCodes, setCustomCodes] = useState<Record<string, string>>({})
+  const [customTreatments, setCustomTreatments] = useState<Record<string, string>>({})
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -36,10 +76,12 @@ export default function RepuestosPage() {
     setFacturas([])
     setMissingRefs([])
     setDuplicateRefs([])
+    setAccountingErrors([])
 
-    let todasFacturas = []
-    let todasFaltantes = []
-    let todosDuplicados = []
+    const todasFacturas: Invoice[] = []
+    const todasFaltantes: ReferenceIssue[] = []
+    const todosDuplicados: ReferenceIssue[] = []
+    const todosErroresContables: string[] = []
 
     try {
       for (const file of files) {
@@ -58,17 +100,21 @@ export default function RepuestosPage() {
           continue
         }
         
-        const data = await res.json()
-        todasFacturas.push(data.factura)
+        const data = await res.json() as ExtractResponse
+        todasFacturas.push({
+          ...data.factura,
+          _accountingPreview: data.accounting_preview,
+        })
         if (data.missing_refs) todasFaltantes.push(...data.missing_refs)
         if (data.duplicados) todosDuplicados.push(...data.duplicados)
+        if (data.accounting_error) todosErroresContables.push(`${file.name}: ${data.accounting_error}`)
       }
 
       setFacturas(todasFacturas)
       
       // Filtrar referencias faltantes únicas
-      const uniqueFaltantes = []
-      const map = new Map()
+      const uniqueFaltantes: ReferenceIssue[] = []
+      const map = new Map<string, boolean>()
       for (const item of todasFaltantes) {
         if(!map.has(item.referencia)){
             map.set(item.referencia, true)
@@ -77,8 +123,9 @@ export default function RepuestosPage() {
       }
       setMissingRefs(uniqueFaltantes)
       setDuplicateRefs(todosDuplicados)
+      setAccountingErrors(todosErroresContables)
 
-    } catch (e) {
+    } catch {
       alert("No se pudo conectar al servidor de Python. Asegúrate de que FastAPI esté corriendo en el puerto 8000.")
     } finally {
       setIsProcessing(false)
@@ -89,21 +136,29 @@ export default function RepuestosPage() {
     setCustomCodes({...customCodes, [ref]: code})
   }
 
+  const handleTreatmentChange = (ref: string, treatment: string) => {
+    setCustomTreatments({...customTreatments, [ref]: treatment})
+  }
+
   const saveMissingRefs = async () => {
-    // Calcular cta_inv
     const payload = missingRefs.map(m => {
-        const prod = customCodes[m.referencia] || ""
-        const cta_sufijo = prod.substring(3, 7) || "0000"
+        const prod = (customCodes[m.referencia] || "").trim()
         return {
             referencia: m.referencia,
             producto: prod,
             descripcion: m.descripcion,
-            cta_inv: "14350102" + cta_sufijo
+            tratamiento_iva: isOilProduct(prod)
+              ? (customTreatments[m.referencia] || "")
+              : DESCONTABLE,
         }
     })
 
-    if (payload.some(p => !p.producto)) {
-        alert("Debes llenar todos los códigos Siigo.")
+    if (payload.some(p => !/^\d{13}$/.test(p.producto))) {
+        alert("Todos los códigos Siigo deben tener exactamente 13 dígitos.")
+        return
+    }
+    if (payload.some(p => isOilProduct(p.producto) && !p.tratamiento_iva)) {
+        alert("Debes seleccionar el tratamiento de IVA de cada producto 003/0001.")
         return
     }
 
@@ -120,7 +175,7 @@ export default function RepuestosPage() {
         } else {
             alert("Error al guardar en el Excel matriz.")
         }
-    } catch (e) {
+    } catch {
         alert("Falla de red.")
     }
   }
@@ -131,7 +186,13 @@ export default function RepuestosPage() {
         const res = await fetch(`${apiUrl}/api/generate-prn`, {
             method: "POST",
             headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({ facturas: facturas })
+            body: JSON.stringify({
+              facturas: facturas.map((factura) => {
+                const cleanInvoice = {...factura}
+                delete cleanInvoice._accountingPreview
+                return cleanInvoice
+              }),
+            })
         })
         
         if (!res.ok) {
@@ -143,7 +204,7 @@ export default function RepuestosPage() {
         const blob = await res.blob()
         const filename = res.headers.get("Content-Disposition")?.split("filename=")[1] || "Lote_ContaFlow.zip"
         downloadBlob(blob, filename.replace(/"/g, ''))
-    } catch (e) {
+    } catch {
         alert("Error de red conectando al motor de PRN.")
     }
   }
@@ -217,9 +278,21 @@ export default function RepuestosPage() {
                           <input 
                               type="text" 
                               placeholder="Cód Siigo (Ej: 0020089...)"
+                              value={customCodes[ref.referencia] || ''}
                               onChange={(e) => handleCustomCodeChange(ref.referencia, e.target.value)}
                               className="w-full sm:w-64 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-400 outline-none"
                           />
+                          {isOilProduct(customCodes[ref.referencia] || '') && (
+                            <select
+                              value={customTreatments[ref.referencia] || ''}
+                              onChange={(e) => handleTreatmentChange(ref.referencia, e.target.value)}
+                              className="w-full sm:w-72 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-400 outline-none"
+                            >
+                              <option value="">Selecciona tratamiento de IVA</option>
+                              <option value={IVA_MAYOR_COSTO}>Excluida — IVA mayor valor del costo</option>
+                              <option value={DESCONTABLE}>Gravada — IVA descontable</option>
+                            </select>
+                          )}
                       </div>
                   ))}
               </div>
@@ -233,8 +306,15 @@ export default function RepuestosPage() {
           </div>
       )}
 
+      {accountingErrors.length > 0 && (
+        <div className="p-6 bg-red-50 border border-red-200 rounded-2xl text-red-800">
+          <h3 className="font-bold flex items-center gap-2"><AlertTriangle/> Validación contable pendiente</h3>
+          {accountingErrors.map((error) => <p key={error} className="text-sm mt-2">{error}</p>)}
+        </div>
+      )}
+
       {/* VALIDACIÓN ESTRICTA Y DESCARGA */}
-      {facturas.length > 0 && missingRefs.length === 0 && duplicateRefs.length === 0 && (
+      {facturas.length > 0 && missingRefs.length === 0 && duplicateRefs.length === 0 && accountingErrors.length === 0 && (
           <div className="space-y-6">
               <div className="bg-green-50 border border-green-200 text-green-900 p-6 rounded-2xl flex items-center justify-between">
                   <div>
@@ -258,18 +338,22 @@ export default function RepuestosPage() {
                                   <th className="px-4 py-3 rounded-tl-xl border-b">Documento</th>
                                   <th className="px-4 py-3 border-b">Ítems</th>
                                   <th className="px-4 py-3 border-b">Subtotal</th>
+                                  <th className="px-4 py-3 border-b">IVA mayor costo</th>
+                                  <th className="px-4 py-3 border-b">IVA descontable</th>
                                   <th className="px-4 py-3 border-b">A Pagar</th>
                               </tr>
                           </thead>
                           <tbody>
                               {facturas.map((fac, idx) => {
-                                  const sub = parseFloat(fac.subtotal) || 0;
-                                  const iva = parseFloat(fac.iva_total) || 0;
+                                  const sub = Number(fac.subtotal) || 0;
+                                  const iva = Number(fac.iva_total) || 0;
                                   return (
                                   <tr key={idx} className="border-b last:border-0 hover:bg-gray-50">
                                       <td className="px-4 py-3 font-medium text-text-main">{fac.numero_factura}</td>
                                       <td className="px-4 py-3 text-text-muted">{fac.items?.length || 0}</td>
                                       <td className="px-4 py-3">${sub.toLocaleString()}</td>
+                                      <td className="px-4 py-3">${(fac._accountingPreview?.capitalized_vat || 0).toLocaleString()}</td>
+                                      <td className="px-4 py-3">${(fac._accountingPreview?.deductible_vat ?? iva).toLocaleString()}</td>
                                       <td className="px-4 py-3 font-bold text-red-600">${(sub+iva).toLocaleString()}</td>
                                   </tr>
                                   )
