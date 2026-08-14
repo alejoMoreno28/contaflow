@@ -1,5 +1,5 @@
 # CONTAFLOW YAMAHA — DOCUMENTO CEREBRO
-**Última actualización: 2026-04-01**
+**Última actualización: 2026-08-14**
 **Para usar con cualquier IA: Claude Code, Antigravity, o Claude.ai**
 
 ---
@@ -24,16 +24,17 @@ ContaFlow Yamaha es una app Streamlit que automatiza el proceso de causación de
 
 ## SECCIÓN 2 — STACK TÉCNICO
 
-- **Lenguaje:** Python 3.14
+- **Lenguaje:** Python (validado localmente con 3.12.13)
 - **Frontend:** Streamlit
 - **IA extracción PDF:** claude-haiku-4-5-20251001 via Anthropic API
-- **Deploy:** Railway → https://contaflow-production.up.railway.app
+- **Deploy activo:** Streamlit Community Cloud → https://contaflow-yamaha.streamlit.app
 - **Repo:** github.com/alejoMoreno28/contaflow (rama: main)
 - **Local:** C:\Users\PC\Desktop\contaflow
 - **Google Sheets ID:** 1JzKIDiMmjqVD-iYXTAjxk4wqPvdassNMZJjsNP_UtQI
 - **Service account:** contaflow-yamaha@contaflow-489019.iam.gserviceaccount.com
 
-**Archivo principal:** `yamaha_app.py` — TODO el trabajo activo está aquí.
+**Archivo principal:** `yamaha_app.py`. Reglas compartidas en `yamaha_rules.py`,
+`yamaha_catalog.py` y `yamaha_prn.py`.
 **NO tocar:** `app.py` (ContaFlow general, bugs activos)
 
 ---
@@ -61,7 +62,24 @@ ContaFlow Yamaha es una app Streamlit que automatiza el proceso de causación de
 - Col C = PRODUCTO (código Siigo, 13 chars, ej: "0020038000183")
 - Col D = DESCRIPCION
 - Col E = CTA-INV (cuenta contable, 10 chars, ej: "1435010238")
+- Col G = LINEA (texto de 3 dígitos)
+- Col H = GRUPO (texto de 3 dígitos en la hoja; el producto usa 4 dígitos)
+- Col I = TRATAMIENTO_IVA (`DESCONTABLE` o `IVA_MAYOR_COSTO`)
 - Datos desde fila 6 (primeras 5 son encabezados/vacías)
+
+### Regla especial aceites excluidos (validada 2026-08-14)
+
+- Solo las 28 referencias aprobadas y futuras referencias confirmadas de
+  producto línea `003`, grupo `0001`, usan cuenta `1435020101`.
+- Para `IVA_MAYOR_COSTO`, el 19% de la base después de descuentos se redondea
+  al peso y se suma al movimiento de inventario.
+- En facturas mixtas, únicamente el IVA atribuible a esos aceites se capitaliza;
+  el IVA restante continúa en `2408020100`.
+- El crédito `2205010000` siempre conserva subtotal + IVA total de la factura.
+- Si una referencia 003/0001 nueva no tiene tratamiento explícito, el PRN se
+  bloquea. Nunca adivinar ni generalizar la regla a otros grupos.
+- Caso patrón CPFE-790425: `516307 + 98098 = 614405` a `1435020101`.
+- La hoja quedó migrada con 28/28 referencias correctas el 2026-08-14.
 
 **Hoja DATOS** — mapeo de tiendas:
 - Col A = Dirección física de la tienda
@@ -240,14 +258,12 @@ Keywords finales verificadas con PDFs reales:
 
 ## SECCIÓN 11 — FEATURES PENDIENTES
 
-### PENDIENTE 1 — Referencias nuevas (alta prioridad)
-Cuando una referencia no está en el Sheets, bloquear PRN y mostrar tabla editable.
-Guardar asignaciones en nuevas_refs.json para facturas futuras.
-**Prompt listo** en el contexto anterior — buscar "CAMBIO 1, 2, 3, 4 nuevas_refs"
+### COMPLETADO — Referencias nuevas
+La app bloquea el PRN, solicita producto Siigo de 13 dígitos y, para 003/0001,
+solicita el tratamiento tributario antes de escribir en Google Sheets.
 
-### PENDIENTE 2 — Migración a Streamlit Community Cloud
-Railway cobra ~$5 USD/mes. Streamlit Community Cloud es gratis.
-Migración es 30 minutos de trabajo. Hacerlo cuando el piloto esté estable.
+### COMPLETADO — Migración a Streamlit Community Cloud
+La app activa se despliega desde `main` en `contaflow-yamaha.streamlit.app`.
 
 ### PENDIENTE 3 — Login real
 Actualmente hardcodeado. Implementar cuando haya más de 1 usuario.
@@ -261,7 +277,7 @@ Actualmente hardcodeado. Implementar cuando haya más de 1 usuario.
 3. **Columnas hoja DATOS:** A=Dirección, B=Tienda, C=CC, D=Doc P, E=Bodega — NUNCA invertir
 4. **Cada cambio = un commit descriptivo separado**
 5. **Validar con la contadora en Siigo antes de cerrar cualquier bug**
-6. **Solo modificar yamaha_app.py** salvo indicación explícita
+6. **Centralizar reglas Yamaha** en los módulos compartidos; no duplicar fórmulas en UI/API
 7. **NO tocar app.py** — tiene bugs activos de ContaFlow general
 8. **Diagnóstico antes de código** — nunca escribir código sin entender la causa raíz
 

@@ -1,5 +1,49 @@
 # BITÁCORA CONTAFLOW YAMAHA
 
+## 2026-08-14 — Aceites excluidos 003/0001 e IVA como mayor costo
+
+**Problema:** Siigo rechazó el producto `0030001000116` porque ContaFlow le
+asignaba `1435010201`. Además, el IVA cobrado por Incolmotos a los aceites
+excluidos se llevaba completo a `2408020100`, aunque contablemente debe formar
+parte del costo del inventario.
+
+**Causa raíz:** La regla histórica suponía que todos los productos pertenecían
+a la línea 002. No existía tratamiento tributario por referencia y el generador
+solo conocía el IVA total de la factura.
+
+**Regla validada por la contadora:**
+
+- Las 28 referencias aprobadas de línea 003/grupo 0001 usan `1435020101`.
+- Su IVA se calcula al 19% sobre la base después de descuentos, redondeado al
+  peso, y se suma al costo del inventario.
+- En facturas mixtas, el IVA de los repuestos 002 conserva `2408020100`.
+- Una referencia 003/0001 futura debe declarar explícitamente si es excluida
+  (`IVA_MAYOR_COSTO`) o gravada (`DESCONTABLE`).
+- Ejemplo CPFE-790425: base 516.307 + IVA 98.098 = débito 614.405 a
+  `1435020101`; crédito 614.405 a `2205010000`; sin línea de IVA descontable.
+
+**Implementación segura:** reglas y generador PRN compartidos, cálculos con
+`Decimal`, validación de balance en pesos, previsualización contable, bloqueo
+ante datos ambiguos y eliminación del generador legado. Las cuentas se calculan
+en el servidor; no se confía en valores enviados por el navegador.
+
+**Migración Google Sheets:** 2 filas existentes corregidas y 26 referencias
+agregadas. Verificación final: 28 correctas, 0 pendientes, 0 conflictos. Se
+preservaron como texto exacto los códigos `003`/`001`.
+
+**Respaldos previos:**
+
+- `C:\Users\PC\Desktop\contaflow_backups\inventarios-before-excluded-oils-20260814-164128.*`
+- `C:\Users\PC\Desktop\contaflow_backups\inventarios-before-excluded-oils-20260814-164317.*`
+
+**Validación técnica:** 40 pruebas Python, compilación Next.js de producción,
+ESLint del flujo de repuestos y arranque local de Streamlit.
+
+**Estado:** listo para despliegue; falta la aceptación final importando en
+Siigo un PRN real de aceite y uno mixto.
+
+---
+
 ## 2026-04-01 — Reconstrucción completa yamaha_app
 **Problema:** Múltiples bugs acumulados desde el 20 de marzo rompieron
 la generación de PRNs. Errores reportados por la contadora:
