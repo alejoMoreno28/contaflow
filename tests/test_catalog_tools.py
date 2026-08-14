@@ -14,6 +14,7 @@ from catalog_tools import (
     normalize_product_code,
     update_reference_product,
 )
+from yamaha_rules import DESCONTABLE, IVA_MAYOR_COSTO
 
 
 class FakeWorksheet:
@@ -64,7 +65,7 @@ def test_find_reference_row_uses_column_b_after_header_rows():
     assert found.cta_inv == "1435010277"
 
 
-def test_update_reference_product_changes_only_producto_cta_and_fecha():
+def test_update_reference_product_updates_product_account_tax_metadata_and_date():
     worksheet = FakeWorksheet(
         [
             ["", "REFERENCIA", "PRODUCTO", "DESCRIPCION", "CTA-INV", "FECHA"],
@@ -92,8 +93,44 @@ def test_update_reference_product_changes_only_producto_cta_and_fecha():
                 {"range": "C3", "values": [["'0020077000625"]]},
                 {"range": "E3", "values": [["1435010277"]]},
                 {"range": "F3", "values": [["2026-04-29"]]},
+                {"range": "G3", "values": [["002"]]},
+                {"range": "H3", "values": [["077"]]},
+                {"range": "I3", "values": [[DESCONTABLE]]},
             ],
         }
+    ]
+
+
+def test_update_reference_product_requires_and_writes_003_tax_treatment():
+    worksheet = FakeWorksheet(
+        [
+            ["", "REFERENCIA", "PRODUCTO", "DESCRIPCION", "CTA-INV", "FECHA"],
+            ["", "NEW-OIL", "'0020001000001", "ACEITE", "1435010201", ""],
+        ]
+    )
+
+    with pytest.raises(CatalogUpdateError, match="tratamiento de IVA"):
+        update_reference_product(
+            worksheet,
+            referencia="NEW-OIL",
+            nuevo_producto="0030001000999",
+            fecha="2026-08-14",
+        )
+
+    result = update_reference_product(
+        worksheet,
+        referencia="NEW-OIL",
+        nuevo_producto="0030001000999",
+        tratamiento_iva=IVA_MAYOR_COSTO,
+        fecha="2026-08-14",
+    )
+
+    assert result.new_cta_inv == "1435020101"
+    assert result.new_tax_treatment == IVA_MAYOR_COSTO
+    assert worksheet.batch_updates[-1]["updates"][-3:] == [
+        {"range": "G2", "values": [["003"]]},
+        {"range": "H2", "values": [["001"]]},
+        {"range": "I2", "values": [[IVA_MAYOR_COSTO]]},
     ]
 
 

@@ -4,7 +4,12 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Sequence
 
-from yamaha_rules import YamahaRuleError, calcular_cta_inv as _calcular_cta_inv
+from yamaha_catalog import build_catalog_row
+from yamaha_rules import (
+    YamahaRuleError,
+    calcular_cta_inv as _calcular_cta_inv,
+    normalize_product_code as _normalize_product_code,
+)
 
 
 class CatalogUpdateError(ValueError):
@@ -18,6 +23,7 @@ class CatalogRow:
     producto: str
     descripcion: str
     cta_inv: str
+    tax_treatment: str
 
 
 @dataclass(frozen=True)
@@ -28,6 +34,8 @@ class CatalogUpdateResult:
     new_producto: str
     old_cta_inv: str
     new_cta_inv: str
+    old_tax_treatment: str
+    new_tax_treatment: str
 
 
 def clean_sheet_text(value: object) -> str:
@@ -39,12 +47,10 @@ def normalize_reference(value: object) -> str:
 
 
 def normalize_product_code(value: object) -> str:
-    code = clean_sheet_text(value)
-    if code.startswith("'"):
-        code = code[1:].strip()
-    if not (len(code) == 13 and code.isdigit()):
-        raise CatalogUpdateError("El codigo producto debe tener exactamente 13 digitos.")
-    return code
+    try:
+        return _normalize_product_code(value)
+    except YamahaRuleError as exc:
+        raise CatalogUpdateError(str(exc)) from exc
 
 
 def calcular_cta_inv(codigo_producto: str) -> str:
@@ -73,6 +79,7 @@ def find_reference_row(rows: Sequence[Sequence[object]], referencia: object) -> 
                 producto=normalize_product_code(_row_value(row, 2)),
                 descripcion=_row_value(row, 3),
                 cta_inv=_row_value(row, 4),
+                tax_treatment=_row_value(row, 8),
             )
         )
 
@@ -89,22 +96,38 @@ def update_reference_product(
     *,
     referencia: object,
     nuevo_producto: object,
+    tratamiento_iva: object = "",
     fecha: str | None = None,
 ) -> CatalogUpdateResult:
     ref = normalize_reference(referencia)
     product_code = normalize_product_code(nuevo_producto)
-    new_cta_inv = calcular_cta_inv(product_code)
     correction_date = fecha or date.today().strftime("%Y-%m-%d")
 
     found = find_reference_row(worksheet.get_all_values(), ref)
     if found is None:
         raise CatalogUpdateError(f"La referencia {ref} no existe en el catalogo.")
 
+    try:
+        new_row = build_catalog_row(
+            ref,
+            product_code,
+            found.descripcion,
+            tratamiento_iva,
+            creation_date=correction_date,
+        )
+    except YamahaRuleError as exc:
+        raise CatalogUpdateError(str(exc)) from exc
+    new_cta_inv = new_row[4]
+    new_tax_treatment = new_row[8]
+
     worksheet.batch_update(
         [
             {"range": f"C{found.row_number}", "values": [[f"'{product_code}"]]},
             {"range": f"E{found.row_number}", "values": [[new_cta_inv]]},
             {"range": f"F{found.row_number}", "values": [[correction_date]]},
+            {"range": f"G{found.row_number}", "values": [[new_row[6]]]},
+            {"range": f"H{found.row_number}", "values": [[new_row[7]]]},
+            {"range": f"I{found.row_number}", "values": [[new_tax_treatment]]},
         ],
         value_input_option="USER_ENTERED",
     )
@@ -116,4 +139,6 @@ def update_reference_product(
         new_producto=product_code,
         old_cta_inv=found.cta_inv,
         new_cta_inv=new_cta_inv,
+        old_tax_treatment=found.tax_treatment,
+        new_tax_treatment=new_tax_treatment,
     )

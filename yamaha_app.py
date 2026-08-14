@@ -19,9 +19,23 @@ from dotenv import load_dotenv
 
 from catalog_tools import (
     CatalogUpdateError,
-    calcular_cta_inv as _calcular_cta_inv_catalogo,
     normalize_product_code,
     update_reference_product,
+)
+from yamaha_catalog import build_catalog_row, parse_inventory_rows
+from yamaha_prn import (
+    PrnValidationError,
+    build_accounting_plan,
+    generar_prn_lines as _generar_prn_lines_shared,
+)
+from yamaha_rules import (
+    DESCONTABLE,
+    EXCLUDED_OILS,
+    IVA_MAYOR_COSTO,
+    YamahaRuleError,
+    calcular_cta_inv,
+    is_oil_product,
+    resolve_tax_treatment,
 )
 
 load_dotenv()
@@ -57,18 +71,9 @@ def _normalizar_ciudad(texto: str) -> str:
 
 
 def _calcular_cta_inv(codigo_producto: str) -> str:
-    """
-    Calcula cuenta contable desde código producto Siigo.
-    Ejemplos confirmados:
-    0020080000001 → 1435010280
-    0020089001417 → 1435010289
-    0020001000001 → 1435010201
-    Regla: "14350102" + str(int(codigo[3:7])).zfill(2)
-    """
     try:
-        sufijo = str(int(codigo_producto[3:7])).zfill(2)
-        return "14350102" + sufijo
-    except Exception:
+        return calcular_cta_inv(codigo_producto)
+    except YamahaRuleError:
         return ""
 
 
@@ -103,9 +108,16 @@ def _guardar_referencias_en_sheets_lote(referencias: list[tuple[str, dict]]) -> 
         ws = gc.open_by_key(SPREADSHEET_ID).worksheet("INVENARIOS")
         fecha = date.today().strftime("%Y-%m-%d")
         
-        filas = []
-        for ref, datos in referencias:
-            filas.append(["", ref, "'" + str(datos["producto"]).strip(), datos["descripcion"], datos["cta_inv"], fecha, "", ""])
+        filas = [
+            build_catalog_row(
+                ref,
+                datos["producto"],
+                datos["descripcion"],
+                datos.get("tratamiento_iva", ""),
+                creation_date=fecha,
+            )
+            for ref, datos in referencias
+        ]
             
         ws.append_rows(filas, value_input_option="USER_ENTERED")
         return True
@@ -177,16 +189,35 @@ def _render_corregir_referencia_catalogo(invenarios: dict) -> None:
                 )
 
         producto_valido = False
+        tratamiento_correccion = ""
         if nuevo_producto:
             try:
                 producto_limpio = normalize_product_code(nuevo_producto)
-                cta_preview = _calcular_cta_inv_catalogo(producto_limpio)
-                producto_valido = True
+                cta_preview = calcular_cta_inv(producto_limpio)
+                if is_oil_product(producto_limpio):
+                    if ref in EXCLUDED_OILS:
+                        tratamiento_correccion = IVA_MAYOR_COSTO
+                        st.info("Referencia aprobada: IVA como mayor valor del costo.")
+                    else:
+                        tratamiento_correccion = st.radio(
+                            "Tratamiento de IVA del producto 003/0001",
+                            options=[IVA_MAYOR_COSTO, DESCONTABLE],
+                            index=None,
+                            format_func=lambda value: (
+                                "Excluida — IVA mayor valor del costo"
+                                if value == IVA_MAYOR_COSTO
+                                else "Gravada — IVA descontable"
+                            ),
+                            key="catalog_fix_tax_treatment",
+                        ) or ""
+                else:
+                    tratamiento_correccion = DESCONTABLE
+                producto_valido = bool(tratamiento_correccion)
                 st.success(
                     f"Nuevo producto valido: `{producto_limpio}` | "
                     f"cuenta calculada: `{cta_preview}`"
                 )
-            except CatalogUpdateError as exc:
+            except (CatalogUpdateError, YamahaRuleError) as exc:
                 st.error(str(exc))
 
         confirmar = st.checkbox(
@@ -206,6 +237,7 @@ def _render_corregir_referencia_catalogo(invenarios: dict) -> None:
                     ws,
                     referencia=ref,
                     nuevo_producto=nuevo_producto,
+                    tratamiento_iva=tratamiento_correccion,
                 )
             except CatalogUpdateError as exc:
                 st.error(str(exc))
@@ -215,6 +247,7 @@ def _render_corregir_referencia_catalogo(invenarios: dict) -> None:
                 st.session_state["invenarios"][result.referencia] = {
                     "producto": result.new_producto,
                     "cta_inv": result.new_cta_inv,
+                    "tratamiento_iva": result.new_tax_treatment,
                 }
                 st.success(
                     "Referencia corregida: "
@@ -368,18 +401,10 @@ if not api_key:
 # ─── PASO 1: CARGAR EXCEL AL INICIO ───────────────────────────────────────────
 
 def _parse_wb(wb) -> tuple[dict, dict]:
-    invenarios: dict[str, dict] = {}
     ws_inv = wb["INVENARIOS"]
-    for row in ws_inv.iter_rows(min_row=3, values_only=True):
-        ref = row[1]  # col B
-        if ref is None or str(ref).strip() == "":
-            continue
-        producto = row[2]  # col C
-        cta_inv  = row[4]  # col E
-        invenarios[str(ref).strip()] = {
-            "producto": str(producto).strip() if producto is not None else "",
-            "cta_inv":  str(cta_inv).strip()  if cta_inv  is not None else "",
-        }
+    invenarios = parse_inventory_rows(
+        ws_inv.iter_rows(min_row=3, values_only=True)
+    )
 
     datos_tiendas: dict[str, dict] = {}
     ws_dat = wb["DATOS"]
@@ -415,17 +440,9 @@ def _cargar_con_gspread() -> tuple[dict, dict]:
     gc = gspread.authorize(creds)
     sp = gc.open_by_key(SPREADSHEET_ID)
 
-    invenarios: dict[str, dict] = {}
-    for row in sp.worksheet("INVENARIOS").get_all_values()[2:]:
-        ref = row[1] if len(row) > 1 else ""
-        if not ref or not str(ref).strip():
-            continue
-        producto = row[2] if len(row) > 2 else ""
-        cta_inv  = row[4] if len(row) > 4 else ""
-        invenarios[str(ref).strip()] = {
-            "producto": str(producto).strip(),
-            "cta_inv":  str(cta_inv).strip(),
-        }
+    invenarios = parse_inventory_rows(
+        sp.worksheet("INVENARIOS").get_all_values()[2:]
+    )
 
     datos_tiendas: dict[str, dict] = {}
     for row in sp.worksheet("DATOS").get_all_values()[1:]:
@@ -995,9 +1012,38 @@ if refs_faltantes:
                 codigo = st.text_input("Ingresa Cód. Producto Siigo", key=f"cod_{ref}", placeholder="Ej: 0020089...")
             with col3:
                 if codigo:
-                    cta = _calcular_cta_inv(codigo)
-                    st.success(f"**CTA:** `{cta}`")
-                    codigos_ingresados[ref] = {"producto": codigo, "descripcion": desc, "cta_inv": cta}
+                    try:
+                        producto_limpio = normalize_product_code(codigo)
+                        cta = calcular_cta_inv(producto_limpio)
+                        tratamiento = resolve_tax_treatment(
+                            "",
+                            ref,
+                            producto_limpio,
+                        )
+                        if is_oil_product(producto_limpio) and tratamiento is None:
+                            tratamiento = st.radio(
+                                "¿Cómo trata Siigo el IVA?",
+                                options=[IVA_MAYOR_COSTO, DESCONTABLE],
+                                index=None,
+                                format_func=lambda value: (
+                                    "Excluida — IVA mayor valor del costo"
+                                    if value == IVA_MAYOR_COSTO
+                                    else "Gravada — IVA descontable"
+                                ),
+                                key=f"tax_{ref}",
+                            )
+                        if tratamiento:
+                            st.success(f"**CTA:** `{cta}`")
+                            codigos_ingresados[ref] = {
+                                "producto": producto_limpio,
+                                "descripcion": desc,
+                                "cta_inv": cta,
+                                "tratamiento_iva": tratamiento,
+                            }
+                        else:
+                            st.warning("Selecciona el tratamiento de IVA.")
+                    except (CatalogUpdateError, YamahaRuleError) as exc:
+                        st.error(str(exc))
                 else:
                     st.caption("Esperando...")
 
@@ -1025,33 +1071,49 @@ st.success("Toda la facturación cuadró perfectamente con el catálogo contable
 
 tab_labels = [f"📄 {fac.get('numero_factura', '?')}" for fac in facturas]
 tabs = st.tabs(tab_labels)
+preflight_errors = False
 
 for fac, tab in zip(facturas, tabs):
     with tab:
         num = fac.get("numero_factura", "?")
-        subtotal  = float(fac.get("subtotal",  0))
-        iva_total = float(fac.get("iva_total", 0))
-        total_fac = subtotal + iva_total
+        try:
+            plan_contable = build_accounting_plan(fac, invenarios)
+        except PrnValidationError as exc:
+            preflight_errors = True
+            st.error(f"No se puede generar el PRN de {num}: {exc}")
+            continue
 
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Subtotal P.",  f"${subtotal:,.0f}")
-        m2.metric("Impuestos (IVA)", f"${iva_total:,.0f}")
-        m3.metric("Coste TOTAL", f"${total_fac:,.0f}")
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric("Subtotal", f"${plan_contable.subtotal:,.0f}")
+        m2.metric("IVA factura", f"${plan_contable.invoice_vat:,.0f}")
+        m3.metric("IVA mayor costo", f"${plan_contable.capitalized_vat:,.0f}")
+        m4.metric("IVA descontable", f"${plan_contable.deductible_vat:,.0f}")
+        m5.metric("Total a pagar", f"${plan_contable.credit_total:,.0f}")
         
         st.markdown("<br>", unsafe_allow_html=True)
         
         filas = []
-        for item in fac.get("items", []):
-            ref  = str(item.get("referencia", "")).strip()
-            look = invenarios.get(ref, {})
+        for movement in plan_contable.item_movements:
             filas.append({
-                "Referencia":  ref,
-                "Descripción": item.get("descripcion", ""),
-                "Cuenta":      look.get("cta_inv", "—"),
-                "Cantidad":    item.get("cantidad", 0),
-                "Valor Total": item.get("valor_total", 0),
+                "Referencia": movement.reference,
+                "Descripción": movement.description,
+                "Producto": movement.product,
+                "Cuenta": movement.account,
+                "Tratamiento": (
+                    "IVA mayor valor del costo"
+                    if movement.treatment == IVA_MAYOR_COSTO
+                    else "IVA descontable"
+                ),
+                "Cantidad": float(movement.quantity),
+                "Base": float(movement.base),
+                "IVA mayor costo": float(movement.capitalized_vat),
+                "Costo inventario": float(movement.amount),
             })
         st.dataframe(pd.DataFrame(filas), use_container_width=True, hide_index=True)
+
+if preflight_errors:
+    st.error("Corrige las validaciones contables antes de generar archivos PRN.")
+    st.stop()
 
 # ── Validar códigos producto duplicados dentro de cada factura ────────────────
 
@@ -1088,7 +1150,7 @@ if prods_duplicados:
 
 # ─── PASO 4 + 5: GENERACIÓN Y DESCARGA PRN ───────────────────────────────────
 
-def generar_prn_lines(
+def _generar_prn_lines_legacy(
     factura_data: dict,
     inv: dict,
     tiendas: dict,
@@ -1247,7 +1309,7 @@ if st.button("🚀 Empaquetar y Generar Archivos PRN", type="primary", use_conta
         nombre = f"INT{num}.prn"
 
         try:
-            lines   = generar_prn_lines(fac, invenarios, datos_tiendas)
+            lines = _generar_prn_lines_shared(fac, invenarios, datos_tiendas)
             content = "\r\n".join(lines) + "\r\n"
             archivos_prn.append((nombre, content.encode("latin-1", errors="replace")))
         except ValueError as e:
@@ -1293,14 +1355,15 @@ if st.button("🚀 Empaquetar y Generar Archivos PRN", type="primary", use_conta
         st.markdown("<br>##### 🔎 Auditoría Cruzada Final", unsafe_allow_html=True)
         verificacion = []
         for fac in facturas:
-            subtotal  = float(fac.get("subtotal",  0))
-            iva_total = float(fac.get("iva_total", 0))
+            plan_contable = build_accounting_plan(fac, invenarios)
             verificacion.append({
                 "Nº de Factura":  fac.get("numero_factura", "?"),
                 "Items": len(fac.get("items", [])),
-                "Subtotal": f"${subtotal:,.0f}",
-                "IVA":      f"${iva_total:,.0f}",
-                "T. A PAGAR":    f"${subtotal + iva_total:,.0f}",
+                "Subtotal": f"${plan_contable.subtotal:,.0f}",
+                "IVA factura": f"${plan_contable.invoice_vat:,.0f}",
+                "IVA mayor costo": f"${plan_contable.capitalized_vat:,.0f}",
+                "IVA descontable": f"${plan_contable.deductible_vat:,.0f}",
+                "T. A PAGAR": f"${plan_contable.credit_total:,.0f}",
             })
         st.dataframe(pd.DataFrame(verificacion), use_container_width=True, hide_index=True)
         st.caption("✔️ Verifica siempre que el T. A PAGAR coincida con el final del archivo PDF impreso.")
