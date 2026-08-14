@@ -153,7 +153,7 @@ def test_add_reference_calculates_account_and_ignores_client_account(monkeypatch
     )
 
     assert response.status_code == 200
-    assert worksheet.value_input_option == "USER_ENTERED"
+    assert worksheet.value_input_option == "RAW"
     assert worksheet.appended[0][4] == "1435020101"
     assert worksheet.appended[0][6:9] == ["003", "001", "IVA_MAYOR_COSTO"]
     assert response.json()["references"][0]["cta_inv"] == "1435020101"

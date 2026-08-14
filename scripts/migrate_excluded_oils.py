@@ -211,9 +211,9 @@ def apply_migration(
             for column, value in change.values.items()
         )
 
-    worksheet.batch_update(updates, value_input_option="USER_ENTERED")
+    worksheet.batch_update(updates, value_input_option="RAW")
     if plan.additions:
-        worksheet.append_rows(plan.additions, value_input_option="USER_ENTERED")
+        worksheet.append_rows(plan.additions, value_input_option="RAW")
 
     return ApplyResult(backup_json=backup_json, backup_csv=backup_csv)
 

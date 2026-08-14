@@ -82,7 +82,7 @@ def build_catalog_row(
     return [
         "",
         clean_reference,
-        f"'{clean_product}",
+        clean_product,
         str(description).strip() if description is not None else "",
         account,
         creation_date or date.today().strftime("%Y-%m-%d"),

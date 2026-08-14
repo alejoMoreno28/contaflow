@@ -88,9 +88,9 @@ def test_update_reference_product_updates_product_account_tax_metadata_and_date(
     assert result.new_cta_inv == "1435010277"
     assert worksheet.batch_updates == [
         {
-            "value_input_option": "USER_ENTERED",
+            "value_input_option": "RAW",
             "updates": [
-                {"range": "C3", "values": [["'0020077000625"]]},
+                {"range": "C3", "values": [["0020077000625"]]},
                 {"range": "E3", "values": [["1435010277"]]},
                 {"range": "F3", "values": [["2026-04-29"]]},
                 {"range": "G3", "values": [["002"]]},

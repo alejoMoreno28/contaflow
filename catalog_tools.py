@@ -122,14 +122,14 @@ def update_reference_product(
 
     worksheet.batch_update(
         [
-            {"range": f"C{found.row_number}", "values": [[f"'{product_code}"]]},
+            {"range": f"C{found.row_number}", "values": [[product_code]]},
             {"range": f"E{found.row_number}", "values": [[new_cta_inv]]},
             {"range": f"F{found.row_number}", "values": [[correction_date]]},
             {"range": f"G{found.row_number}", "values": [[new_row[6]]]},
             {"range": f"H{found.row_number}", "values": [[new_row[7]]]},
             {"range": f"I{found.row_number}", "values": [[new_tax_treatment]]},
         ],
-        value_input_option="USER_ENTERED",
+        value_input_option="RAW",
     )
 
     return CatalogUpdateResult(

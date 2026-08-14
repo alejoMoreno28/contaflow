@@ -412,7 +412,7 @@ def add_reference(refs: List[RefData]):
             detail=f"Referencias ya existentes: {', '.join(duplicates)}",
         )
 
-    ws.append_rows(rows, value_input_option="USER_ENTERED")
+    ws.append_rows(rows, value_input_option="RAW")
 
     global CACHE_INVENARIOS
     for row in rows:

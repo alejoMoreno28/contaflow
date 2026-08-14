@@ -72,7 +72,7 @@ def test_build_catalog_row_requires_treatment_for_new_003():
     assert row == [
         "",
         "NEW-OIL",
-        "'0030001000999",
+        "0030001000999",
         "NUEVO",
         "1435020101",
         "2026-08-14",

@@ -41,7 +41,7 @@ def test_plan_updates_existing_oil_and_adds_only_missing_approved_references():
     }
     assert len(plan.additions) == len(EXCLUDED_OILS) - 1
     assert {row[1] for row in plan.additions} == set(EXCLUDED_OILS) - {reference}
-    assert plan.additions[0][2].startswith("'0030001")
+    assert plan.additions[0][2].startswith("0030001")
 
 
 def test_plan_rejects_approved_reference_with_conflicting_product():
@@ -132,6 +132,7 @@ def test_apply_migration_backs_up_before_writes(tmp_path: Path):
         "I6",
     }
     assert len(worksheet.appended) == len(EXCLUDED_OILS) - 1
+    assert worksheet.value_input_option == "RAW"
 
 
 def test_apply_migration_refuses_conflicts(tmp_path: Path):

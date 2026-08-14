@@ -119,7 +119,7 @@ def _guardar_referencias_en_sheets_lote(referencias: list[tuple[str, dict]]) -> 
             for ref, datos in referencias
         ]
             
-        ws.append_rows(filas, value_input_option="USER_ENTERED")
+        ws.append_rows(filas, value_input_option="RAW")
         return True
     except Exception as e:
         st.error(f"Error guardando en Google Sheets en lote: {e}")
